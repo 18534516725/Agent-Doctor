@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -32,6 +34,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 // RunWithInput is the testable command entrypoint. Production callers use Run,
 // which wires the protocol to the process standard input.
 func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "help")) {
+		printUsage(stdout)
+		return 0
+	}
 	if len(args) == 1 && args[0] == "version" {
 		fmt.Fprintf(stdout, "agent-doctor %s\n", Version)
 		return 0
@@ -39,8 +45,25 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 	if len(args) >= 1 && (args[0] == "start" || args[0] == "dashboard") {
 		return runLocalDashboard(args[1:], stdout, stderr)
 	}
-	if len(args) == 2 && args[0] == "doctor" && args[1] == "--json" {
+	if len(args) >= 1 && args[0] == "doctor" && hasFlag(args[1:], "--json") {
 		return runDoctorJSON(stdout, stderr)
+	}
+	if len(args) >= 1 && args[0] == "setup" {
+		return runSetup(args[1:], stdout, stderr)
+	}
+	if len(args) >= 1 && args[0] == "uninstall" {
+		return runUninstall(args[1:], stdout, stderr)
+	}
+	if len(args) >= 1 && args[0] == "run" {
+		return runWrapped(args[1:], input, stdout, stderr)
+	}
+	if len(args) >= 1 && hasFlag(args[1:], "--json") {
+		switch args[0] {
+		case "diagnose", "compare", "context", "costs", "pause", "export":
+			return runLocalDataCommand(args[0], stdout, stderr)
+		case "forget":
+			return runForget(args[1:], stdout, stderr)
+		}
 	}
 	if len(args) == 2 && args[0] == "mcp" && args[1] == "serve" {
 		backend := mcp.ToolBackend(unavailableMCPBackend{})
@@ -82,10 +105,12 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 }
 
 func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
-	once := len(args) == 1 && args[0] == "--once"
-	if len(args) > 0 && !once {
-		printUsage(stderr)
-		return 2
+	once := hasFlag(args, "--once")
+	for _, argument := range args {
+		if argument != "--once" && argument != "--no-open" {
+			printUsage(stderr)
+			return 2
+		}
 	}
 	database, err := openLocalStore()
 	if err != nil {
@@ -164,6 +189,154 @@ func runDoctorJSON(stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runSetup(args []string, stdout, stderr io.Writer) int {
+	if !hasFlag(args, "--json") {
+		printUsage(stderr)
+		return 2
+	}
+	home, err := agentDoctorHome()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: home directory unavailable")
+		return 1
+	}
+	plan, err := installer.BuildCodexMCPPlan(home)
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: setup plan unavailable")
+		return 1
+	}
+	result := map[string]any{"status": "planned", "applied": false, "diff": plan.Diff(), "warnings": plan.Warnings, "detectedClients": plan.Detected}
+	if hasFlag(args, "--yes") {
+		applied, applyErr := installer.Apply(plan)
+		if applyErr != nil {
+			fmt.Fprintln(stderr, "agent-doctor: setup failed and prior configuration was restored")
+			return 1
+		}
+		result["status"], result["applied"], result["result"] = "ready", true, applied
+	}
+	return encodeJSON(stdout, stderr, result)
+}
+
+func runUninstall(args []string, stdout, stderr io.Writer) int {
+	if !hasFlag(args, "--json") {
+		printUsage(stderr)
+		return 2
+	}
+	if !hasFlag(args, "--yes") {
+		return encodeJSON(stdout, stderr, map[string]any{"status": "planned", "removed": false, "message": "Pass --yes to remove only Agent Doctor-owned configuration blocks."})
+	}
+	home, err := agentDoctorHome()
+	if err != nil || installer.UninstallCodexMCP(home) != nil {
+		fmt.Fprintln(stderr, "agent-doctor: uninstall incomplete")
+		return 1
+	}
+	return encodeJSON(stdout, stderr, map[string]any{"status": "ready", "removed": true})
+}
+
+func runLocalDataCommand(command string, stdout, stderr io.Writer) int {
+	database, err := openLocalStore()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local database unavailable")
+		return 1
+	}
+	defer database.Close()
+	summary, err := database.DashboardSummary(context.Background())
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local summary unavailable")
+		return 1
+	}
+	snapshot, err := database.DashboardSnapshot(context.Background())
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local snapshot unavailable")
+		return 1
+	}
+	var value any
+	switch command {
+	case "diagnose":
+		value = map[string]any{"status": "ready", "evidenceEvents": summary.Events, "activeSessions": summary.ActiveSessions, "precision": summary.Precision, "limitations": []string{"A diagnosis requires a recorded task and never infers missing evidence."}}
+	case "compare":
+		value = map[string]any{"status": "ready", "comparisonCount": snapshot.ComparisonCount, "minimumComparableSamples": 15}
+	case "context":
+		value = map[string]any{"status": "ready", "memories": snapshot.Memories, "contentIncluded": false}
+	case "costs":
+		value = map[string]any{"status": "ready", "costs": snapshot.Costs}
+	case "pause":
+		value = map[string]any{"status": "ready", "paused": true, "scope": "capture requests from this CLI invocation"}
+	case "export":
+		value = map[string]any{"status": "ready", "summary": summary, "snapshot": snapshot, "eventPayloadsIncluded": false}
+	default:
+		value = map[string]any{"status": "unavailable"}
+	}
+	return encodeJSON(stdout, stderr, value)
+}
+
+func runForget(args []string, stdout, stderr io.Writer) int {
+	if !hasFlag(args, "--yes") {
+		return encodeJSON(stdout, stderr, map[string]any{"status": "planned", "forgotten": false, "message": "Pass --yes to delete the local Agent Doctor database."})
+	}
+	path, err := localDatabasePath()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local database path unavailable")
+		return 1
+	}
+	for _, target := range []string{path, path + "-wal", path + "-shm"} {
+		if removeErr := os.Remove(target); removeErr != nil && !os.IsNotExist(removeErr) {
+			fmt.Fprintln(stderr, "agent-doctor: local data removal incomplete")
+			return 1
+		}
+	}
+	return encodeJSON(stdout, stderr, map[string]any{"status": "ready", "forgotten": true})
+}
+
+func runWrapped(args []string, input io.Reader, stdout, stderr io.Writer) int {
+	separator := -1
+	for index, argument := range args {
+		if argument == "--" {
+			separator = index
+			break
+		}
+	}
+	if separator < 0 || separator+1 >= len(args) {
+		fmt.Fprintln(stderr, "usage: agent-doctor run -- <command> [args...]")
+		return 2
+	}
+	argv := args[separator+1:]
+	command := exec.Command(argv[0], argv[1:]...)
+	command.Stdin, command.Stdout, command.Stderr = input, stdout, stderr
+	if err := command.Run(); err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			return exitError.ExitCode()
+		}
+		fmt.Fprintln(stderr, "agent-doctor: wrapped command failed to start")
+		return 1
+	}
+	return 0
+}
+
+func encodeJSON(stdout, stderr io.Writer, value any) int {
+	if err := json.NewEncoder(stdout).Encode(value); err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: JSON encoding failed")
+		return 1
+	}
+	return 0
+}
+
+func hasFlag(arguments []string, flag string) bool {
+	for _, argument := range arguments {
+		if argument == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func agentDoctorHome() (string, error) {
+	if value := os.Getenv("AGENT_DOCTOR_HOME"); value != "" {
+		return value, nil
+	}
+	return os.UserHomeDir()
+}
+
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: agent-doctor <command>")
 	fmt.Fprintln(writer, "commands: setup, start, dashboard, diagnose, compare, context, costs, doctor, pause, export, forget, run, uninstall, mcp serve, version")
@@ -189,16 +362,24 @@ func runClineHook(input io.Reader, insert func(events.Event) error, diagnostics 
 }
 
 func openLocalStore() (*storage.DB, error) {
+	path, err := localDatabasePath()
+	if err != nil {
+		return nil, err
+	}
+	return storage.Open(path)
+}
+
+func localDatabasePath() (string, error) {
 	configDirectory := os.Getenv("AGENT_DOCTOR_CONFIG_DIR")
 	if configDirectory == "" {
 		var err error
 		configDirectory, err = os.UserConfigDir()
 		if err != nil {
-			return nil, fmt.Errorf("resolve local data directory: %w", err)
+			return "", fmt.Errorf("resolve local data directory: %w", err)
 		}
 		configDirectory = filepath.Join(configDirectory, "AgentDoctor")
 	}
-	return storage.Open(filepath.Join(configDirectory, "doctor.db"))
+	return filepath.Join(configDirectory, "doctor.db"), nil
 }
 
 // unavailableMCPBackend is intentionally conservative until the user has
