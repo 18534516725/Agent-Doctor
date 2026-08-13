@@ -20,4 +20,13 @@ describe('diagnostic dashboard shell', () => {
     expect(screen.getByText(/This device only/i)).toBeVisible();
     expect(screen.queryByText('<img src=x onerror=alert(1)>')).not.toBeInTheDocument();
   });
+
+  it('switches the entire diagnostic shell to Chinese without changing the selected section', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Costs' }));
+    fireEvent.click(screen.getByRole('button', { name: '中文' }));
+    expect(screen.getByRole('heading', { name: '费用账本' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '总览' })).toBeVisible();
+    expect(screen.getByText(/仅保存在此设备/i)).toBeVisible();
+  });
 });
