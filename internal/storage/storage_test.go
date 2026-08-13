@@ -89,6 +89,38 @@ func TestDuplicateEventIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestDashboardSummaryOnlyAggregatesLocalEventMetadata(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	exact := storageEvent()
+	estimated := storageEvent()
+	estimated.EventID = "event-2"
+	estimated.SessionID = "session-2"
+	estimated.ProjectID = "project-2"
+	estimated.Precision = events.PrecisionEstimated
+	if err := database.InsertEvent(context.Background(), exact); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InsertEvent(context.Background(), estimated); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := database.DashboardSummary(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Projects != 2 || summary.Sessions != 2 || summary.Events != 2 || summary.ActiveSessions != 2 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+	if summary.Precision.Exact != 1 || summary.Precision.Estimated != 1 || summary.Precision.Unavailable != 0 {
+		t.Fatalf("unexpected precision: %+v", summary.Precision)
+	}
+}
+
 func TestFailedMigrationCreatesBackupAndEntersReadOnlyRecovery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "doctor.db")
 	database, err := Open(path)

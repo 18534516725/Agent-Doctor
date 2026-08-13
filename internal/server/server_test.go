@@ -12,12 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 )
 
 type memoryEventStore struct {
-	mu     sync.Mutex
-	events []events.Event
+	mu      sync.Mutex
+	events  []events.Event
+	summary dashboard.Summary
 }
 
 func (store *memoryEventStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -40,6 +42,10 @@ func (store *memoryEventStore) ListSessionEvents(_ context.Context, sessionID st
 }
 
 func (store *memoryEventStore) ReadOnly() bool { return false }
+
+func (store *memoryEventStore) DashboardSummary(context.Context) (dashboard.Summary, error) {
+	return store.summary, nil
+}
 
 func TestListenBindsOnlyLoopback(t *testing.T) {
 	service := newTestServer(t)
@@ -126,6 +132,34 @@ func TestAuthenticatedEventIsAccepted(t *testing.T) {
 	service.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusAccepted || len(store.events) != 1 {
 		t.Fatalf("status=%d events=%d body=%s", response.Code, len(store.events), response.Body.String())
+	}
+}
+
+func TestDashboardSummaryReturnsOnlySafeAggregates(t *testing.T) {
+	store := &memoryEventStore{summary: dashboard.Summary{
+		Projects: 2, Sessions: 3, Events: 8, ActiveSessions: 1,
+		Precision: dashboard.PrecisionCounts{Exact: 5, Estimated: 2, Unavailable: 1},
+	}}
+	service, err := New(Config{Version: "0.1.0-dev", Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/dashboard/summary", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{`"projects":2`, `"sessions":3`, `"events":8`, `"activeSessions":1`, `"estimated":2`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("summary missing %s: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"payload", "prompt", "credential", "source code"} {
+		if strings.Contains(strings.ToLower(body), forbidden) {
+			t.Fatalf("summary leaked %q: %s", forbidden, body)
+		}
 	}
 }
 

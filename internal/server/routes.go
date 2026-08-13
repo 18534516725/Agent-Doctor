@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 )
 
@@ -82,10 +83,20 @@ func (server *Server) ingestEvent(response http.ResponseWriter, request *http.Re
 }
 
 func (server *Server) dashboardSummary(response http.ResponseWriter, _ *http.Request) {
+	summary := dashboard.Summary{}
+	if provider, ok := server.store.(dashboard.SummaryProvider); ok {
+		var err error
+		summary, err = provider.DashboardSummary(context.Background())
+		if err != nil {
+			writeError(response, http.StatusServiceUnavailable, "dashboard storage unavailable")
+			return
+		}
+	}
 	writeJSON(response, http.StatusOK, map[string]any{
 		"schemaVersion":    1,
 		"status":           "ready",
 		"readOnlyRecovery": server.store.ReadOnly(),
+		"summary":          summary,
 	})
 }
 

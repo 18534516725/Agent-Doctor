@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/privacy"
 )
@@ -108,6 +109,32 @@ func (database *DB) ListSessionEvents(ctx context.Context, sessionID string) ([]
 		return nil, fmt.Errorf("iterate session events: %w", err)
 	}
 	return result, nil
+}
+
+// DashboardSummary exposes aggregate operational state for the local dashboard.
+// It never selects event payloads, project paths, commands or prompt text.
+func (database *DB) DashboardSummary(ctx context.Context) (dashboard.Summary, error) {
+	var summary dashboard.Summary
+	if err := database.sql.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM projects),
+			(SELECT COUNT(*) FROM sessions),
+			(SELECT COUNT(*) FROM sessions WHERE status = 'active'),
+			(SELECT COUNT(*) FROM events),
+			(SELECT COUNT(*) FROM events WHERE precision = 'exact'),
+			(SELECT COUNT(*) FROM events WHERE precision = 'estimated'),
+			(SELECT COUNT(*) FROM events WHERE precision = 'unavailable')`).Scan(
+		&summary.Projects,
+		&summary.Sessions,
+		&summary.ActiveSessions,
+		&summary.Events,
+		&summary.Precision.Exact,
+		&summary.Precision.Estimated,
+		&summary.Precision.Unavailable,
+	); err != nil {
+		return dashboard.Summary{}, fmt.Errorf("query dashboard summary: %w", err)
+	}
+	return summary, nil
 }
 
 func lookupOrCreateClient(ctx context.Context, transaction *sql.Tx, client events.ClientRef) (int64, error) {
