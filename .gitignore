@@ -1,0 +1,29 @@
+# Local and editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Build and test output
+.tmp/
+dist/
+coverage/
+dashboard/dist/
+dashboard/test-results/
+dashboard/playwright-report/
+
+# Dependencies
+node_modules/
+
+# Local runtime data
+*.db
+*.db-shm
+*.db-wal
+*.backup-*
+.agent-doctor/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
