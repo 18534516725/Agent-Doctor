@@ -5,6 +5,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/18534516725/Agent-Doctor/internal/events"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -36,6 +39,27 @@ func TestMCPServeStartsReadOnlyProtocolServer(t *testing.T) {
 	for _, want := range []string{`"name":"agent-doctor"`, `"title":"Agent Doctor"`, `read-only`} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("MCP response missing %q: %s", want, out.String())
+		}
+	}
+}
+
+func TestClaudeCodeHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
+	input := strings.NewReader(`{"session_id":"session-1","cwd":"/private/project","hook_event_name":"PreCompact","model":"public-model","tool_input":{"secret":"must-not-store"}}`)
+	var captured events.Event
+	code := runClaudeCodeHook(input, func(event events.Event) error {
+		captured = event
+		return nil
+	}, io.Discard, func() time.Time { return time.Date(2026, 8, 13, 14, 0, 0, 0, time.UTC) })
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if captured.EventType != events.EventContextCompacted || captured.Client.Name != "claude-code" {
+		t.Fatalf("event=%+v", captured)
+	}
+	encoded := string(captured.Payload)
+	for _, forbidden := range []string{"private/project", "must-not-store", "tool_input"} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("normalized hook leaked %q: %s", forbidden, encoded)
 		}
 	}
 }

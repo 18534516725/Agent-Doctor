@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/adapters/claudecode"
+	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
+	"github.com/18534516725/Agent-Doctor/internal/storage"
 )
 
 const developmentVersion = "dev"
@@ -30,9 +35,32 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 		}
 		return 0
 	}
+	if len(args) == 3 && args[0] == "hook" && args[1] == "claude-code" {
+		database, err := openLocalStore()
+		if err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: local lifecycle event was not recorded; Claude Code will continue normally")
+			return 0
+		}
+		defer database.Close()
+		return runClaudeCodeHook(input, func(event events.Event) error {
+			return database.InsertEvent(context.Background(), event)
+		}, stderr, time.Now)
+	}
 
 	fmt.Fprintln(stderr, "usage: agent-doctor <command>")
 	return 2
+}
+
+func runClaudeCodeHook(input io.Reader, insert func(events.Event) error, diagnostics io.Writer, now func() time.Time) int {
+	return claudecode.IngestFailOpen(input, now(), insert, diagnostics)
+}
+
+func openLocalStore() (*storage.DB, error) {
+	configDirectory, err := os.UserConfigDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve local data directory: %w", err)
+	}
+	return storage.Open(filepath.Join(configDirectory, "AgentDoctor", "doctor.db"))
 }
 
 // unavailableMCPBackend is intentionally conservative until the user has
