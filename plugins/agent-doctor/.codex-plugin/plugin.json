@@ -1,0 +1,30 @@
+{
+  "name": "agent-doctor",
+  "version": "0.1.0",
+  "description": "Local-first evidence, context memory, cost visibility, and task diagnosis for coding agents.",
+  "author": {
+    "name": "NexoToken",
+    "url": "https://github.com/18534516725"
+  },
+  "homepage": "https://github.com/18534516725/Agent-Doctor",
+  "repository": "https://github.com/18534516725/Agent-Doctor",
+  "license": "Apache-2.0",
+  "keywords": ["codex", "diagnostics", "context", "cost", "local-first"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Doctor",
+    "shortDescription": "Diagnose coding tasks with sanitized local evidence.",
+    "longDescription": "Inspect bounded task evidence, retrieve transparent context capsules, and review available cost or quota signals without uploading prompts or source code.",
+    "developerName": "NexoToken",
+    "category": "DeveloperTools",
+    "capabilities": ["Read-only diagnostics", "Local context memory", "Cost visibility"],
+    "websiteURL": "https://github.com/18534516725/Agent-Doctor",
+    "defaultPrompt": [
+      "Use $agent-doctor to diagnose my latest task.",
+      "Use $agent-doctor to build a context capsule.",
+      "Use $agent-doctor to show available cost evidence."
+    ],
+    "brandColor": "#74E59A"
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Doctor"
+  short_description: "Diagnose coding-agent tasks with local evidence"
+  default_prompt: "Use $agent-doctor to diagnose my latest coding task and recommend the next safe action."

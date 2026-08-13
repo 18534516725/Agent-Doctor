@@ -1,0 +1,20 @@
+{
+  "name": "agent-doctor",
+  "interface": {
+    "displayName": "Agent Doctor"
+  },
+  "plugins": [
+    {
+      "name": "agent-doctor",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agent-doctor"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "DeveloperTools"
+    }
+  ]
+}
