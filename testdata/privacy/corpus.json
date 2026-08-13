@@ -1,0 +1,17 @@
+{
+  "blocked": [
+    "Authorization: Bearer secret-value",
+    "password=hunter2",
+    "Cookie: sid=abc",
+    "sk-proj-example-secret",
+    "api_key=synthetic-value",
+    "token=\"synthetic-token\""
+  ],
+  "allowed": [
+    "API keys should be stored securely",
+    "No password is collected",
+    "authentication test failed",
+    "The support channel is available",
+    "Token usage is unavailable"
+  ]
+}
