@@ -56,7 +56,7 @@ describe('complete local dashboard', () => {
     render(<App api={api} />);
     await waitFor(() => expect(screen.getByText('12')).toBeVisible());
     fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
-    for (const client of ['Codex', 'Claude Code', 'Cursor', 'Cline', 'OpenCode', 'Windsurf', 'Roo Code', 'Continue']) {
+    for (const client of ['Codex', 'Claude Code', 'Cursor', 'Cline', 'OpenCode', 'Windsurf', 'Roo Code', 'Continue', 'Aider', 'Cherry Studio', 'Generic CLI']) {
       expect(screen.getByText(client)).toBeVisible();
     }
     fireEvent.click(screen.getByRole('button', { name: 'Privacy' }));
@@ -64,5 +64,21 @@ describe('complete local dashboard', () => {
     fireEvent.change(screen.getByLabelText('Retention days'), { target: { value: '45' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save privacy settings' }));
     await waitFor(() => expect(api.updatePrivacy).toHaveBeenCalledWith(expect.objectContaining({ retentionDays: 45 })));
+  });
+
+  it('localizes task, empty-state, privacy, and action copy in Chinese', async () => {
+    render(<App api={api} />);
+    await waitFor(() => expect(screen.getByText('12')).toBeVisible());
+    fireEvent.click(screen.getByRole('button', { name: '中文' }));
+    fireEvent.click(screen.getByRole('button', { name: '任务证据' }));
+    expect(document.body).toHaveTextContent('7 个事件');
+    expect(screen.getByRole('button', { name: '查看 session-42' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '对比' }));
+    expect(screen.getByText('数据缺失时绝不会显示成零。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '隐私' }));
+    expect(screen.getByLabelText('采集提示词')).not.toBeChecked();
+    expect(screen.getByLabelText('采集文件内容')).not.toBeChecked();
+    expect(screen.getByLabelText('保留天数')).toHaveValue(30);
+    expect(screen.getByRole('button', { name: '保存隐私设置' })).toBeVisible();
   });
 });
