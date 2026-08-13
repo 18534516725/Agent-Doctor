@@ -1,0 +1,5 @@
+[
+  {"client":"Windsurf","version":"documented-mcp","lastVerifiedAt":"2026-08-13","capabilities":{"lifecycle":false,"context":true,"mcp":true,"model":false,"token":false,"cost":false,"replay":false}},
+  {"client":"Roo Code","version":"documented-mcp","lastVerifiedAt":"2026-08-13","capabilities":{"lifecycle":false,"context":true,"mcp":true,"model":false,"token":false,"cost":false,"replay":false}},
+  {"client":"Continue","version":"documented-mcp","lastVerifiedAt":"2026-08-13","capabilities":{"lifecycle":false,"context":true,"mcp":true,"model":false,"token":false,"cost":false,"replay":false}}
+]

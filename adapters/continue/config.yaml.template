@@ -1,0 +1,5 @@
+mcpServers:
+  agent-doctor:
+    command: agent-doctor
+    args:
+      - mcp
