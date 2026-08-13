@@ -49,3 +49,4 @@ get_task_evidence({"sessionId":"…"})
 - 需要执行验证命令时，必须由用户明确批准命令；Agent Doctor 不替用户执行项目命令。
 - 本地统计只返回聚合计数，仪表盘和 MCP 都不会读取完整 prompt、源码、凭证或上游供应信息。
 - `export --json` 仅导出安全聚合；`forget --yes --json` 删除本地数据库；`uninstall --yes --json` 只删除 Agent Doctor 自己的 Codex 配置块。
+- `pause --json` 会在本机持久暂停生命周期采集；`pause --resume --json` 才会重新启用。

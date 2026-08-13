@@ -71,3 +71,22 @@ func TestRunExecutesArgumentVectorWithoutShell(t *testing.T) {
 		t.Fatalf("code=%d output=%q", code, stdout.String())
 	}
 }
+
+func TestPausePersistsUntilExplicitlyResumed(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", config)
+	var paused bytes.Buffer
+	if code := Run([]string{"pause", "--json"}, &paused, io.Discard); code != 0 || !strings.Contains(paused.String(), `"paused":true`) {
+		t.Fatalf("pause code=%d output=%s", code, paused.String())
+	}
+	if _, err := os.Stat(filepath.Join(config, "capture.paused")); err != nil {
+		t.Fatalf("pause state was not persisted: %v", err)
+	}
+	var resumed bytes.Buffer
+	if code := Run([]string{"pause", "--resume", "--json"}, &resumed, io.Discard); code != 0 || !strings.Contains(resumed.String(), `"paused":false`) {
+		t.Fatalf("resume code=%d output=%s", code, resumed.String())
+	}
+	if _, err := os.Stat(filepath.Join(config, "capture.paused")); !os.IsNotExist(err) {
+		t.Fatalf("pause state survived resume: %v", err)
+	}
+}

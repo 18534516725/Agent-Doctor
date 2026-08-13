@@ -64,7 +64,8 @@ visible limitations.
 | `agent-doctor context --json` | Report bounded memory state without content |
 | `agent-doctor costs --json` | Separate exact, estimated, and unavailable cost |
 | `agent-doctor doctor --json` | Check database and detected clients |
-| `agent-doctor pause --json` | Report the local capture pause boundary |
+| `agent-doctor pause --json` | Persistently pause local lifecycle capture |
+| `agent-doctor pause --resume --json` | Resume local lifecycle capture |
 | `agent-doctor export --json` | Export sanitized aggregates, never event payloads |
 | `agent-doctor forget --yes --json` | Delete the local Agent Doctor database |
 | `agent-doctor run -- <command>` | Run an argv-safe wrapped command without a shell |

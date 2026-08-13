@@ -1,0 +1,7 @@
+{
+  "name": "agent-doctor",
+  "transport": "stdio",
+  "command": "agent-doctor",
+  "args": ["mcp", "serve"],
+  "readOnly": true
+}

@@ -57,9 +57,12 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 	if len(args) >= 1 && args[0] == "run" {
 		return runWrapped(args[1:], input, stdout, stderr)
 	}
+	if len(args) >= 1 && args[0] == "pause" && hasFlag(args[1:], "--json") {
+		return runPause(args[1:], stdout, stderr)
+	}
 	if len(args) >= 1 && hasFlag(args[1:], "--json") {
 		switch args[0] {
-		case "diagnose", "compare", "context", "costs", "pause", "export":
+		case "diagnose", "compare", "context", "costs", "export":
 			return runLocalDataCommand(args[0], stdout, stderr)
 		case "forget":
 			return runForget(args[1:], stdout, stderr)
@@ -78,6 +81,9 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 		return 0
 	}
 	if len(args) == 3 && args[0] == "hook" && args[1] == "claude-code" {
+		if capturePaused() {
+			return 0
+		}
 		database, err := openLocalStore()
 		if err != nil {
 			fmt.Fprintln(stderr, "agent-doctor: local lifecycle event was not recorded; Claude Code will continue normally")
@@ -89,6 +95,9 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 		}, stderr, time.Now)
 	}
 	if len(args) == 3 && args[0] == "hook" && args[1] == "cline" {
+		if capturePaused() {
+			return 0
+		}
 		database, err := openLocalStore()
 		if err != nil {
 			fmt.Fprintln(stderr, "agent-doctor: local lifecycle event was not recorded; Cline will continue normally")
@@ -259,14 +268,52 @@ func runLocalDataCommand(command string, stdout, stderr io.Writer) int {
 		value = map[string]any{"status": "ready", "memories": snapshot.Memories, "contentIncluded": false}
 	case "costs":
 		value = map[string]any{"status": "ready", "costs": snapshot.Costs}
-	case "pause":
-		value = map[string]any{"status": "ready", "paused": true, "scope": "capture requests from this CLI invocation"}
 	case "export":
 		value = map[string]any{"status": "ready", "summary": summary, "snapshot": snapshot, "eventPayloadsIncluded": false}
 	default:
 		value = map[string]any{"status": "unavailable"}
 	}
 	return encodeJSON(stdout, stderr, value)
+}
+
+func runPause(args []string, stdout, stderr io.Writer) int {
+	path, err := pauseStatePath()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: capture state unavailable")
+		return 1
+	}
+	paused := !hasFlag(args, "--resume")
+	if paused {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: capture state unavailable")
+			return 1
+		}
+		if err := os.WriteFile(path, []byte("paused\n"), 0o600); err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: capture pause could not be persisted")
+			return 1
+		}
+	} else if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintln(stderr, "agent-doctor: capture resume could not be persisted")
+		return 1
+	}
+	return encodeJSON(stdout, stderr, map[string]any{"status": "ready", "paused": paused, "scope": "all Agent Doctor lifecycle capture on this device"})
+}
+
+func capturePaused() bool {
+	path, err := pauseStatePath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+func pauseStatePath() (string, error) {
+	database, err := localDatabasePath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(database), "capture.paused"), nil
 }
 
 func runForget(args []string, stdout, stderr io.Writer) int {
