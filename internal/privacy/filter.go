@@ -1,6 +1,10 @@
 package privacy
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
 	"math"
 	"strings"
 )
@@ -20,6 +24,56 @@ func FilterText(input string) string {
 		}
 		return candidate
 	})
+}
+
+// FilterJSON applies the same pre-storage policy structurally so credential
+// fields are removed even when their values do not resemble a known token.
+func FilterJSON(input []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("decode event payload: %w", err)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	return json.Marshal(filterJSONValue(value))
+}
+
+func filterJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		filtered := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if sensitiveJSONKeyPattern.MatchString(key) {
+				filtered[key] = "[REDACTED:SECRET]"
+				continue
+			}
+			filtered[key] = filterJSONValue(child)
+		}
+		return filtered
+	case []any:
+		filtered := make([]any, len(typed))
+		for index, child := range typed {
+			filtered[index] = filterJSONValue(child)
+		}
+		return filtered
+	case string:
+		return FilterText(typed)
+	default:
+		return value
+	}
+}
+
+func ensureJSONEOF(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); err == io.EOF {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("decode trailing event payload: %w", err)
+	}
+	return fmt.Errorf("event payload contains more than one JSON value")
 }
 
 func looksHighEntropy(value string) bool {

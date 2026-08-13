@@ -56,6 +56,20 @@ func TestFilterTextRedactsHighEntropyAssignmentButNotExplanation(t *testing.T) {
 	}
 }
 
+func TestFilterJSONRedactsSensitiveKeysAndNestedText(t *testing.T) {
+	input := []byte(`{"token":"synthetic-token","nested":{"message":"Authorization: Bearer nested-secret"}}`)
+	got, err := FilterJSON(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "synthetic-token") || strings.Contains(string(got), "nested-secret") {
+		t.Fatalf("JSON secret survived: %s", got)
+	}
+	if !json.Valid(got) {
+		t.Fatalf("filtered JSON became invalid: %s", got)
+	}
+}
+
 func FuzzFilterNeverReturnsBearerValue(f *testing.F) {
 	for _, value := range []string{"abc123", "synthetic-token-value", "aB9_7zY3-kLmN2"} {
 		f.Add(value)

@@ -35,3 +35,5 @@ var boundedSecretPatterns = []replacementPattern{
 var privateKeyPattern = regexp.MustCompile(`(?s)-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----.*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----`)
 
 var highEntropyCandidatePattern = regexp.MustCompile(`\b[A-Za-z0-9_+/=-]{32,512}\b`)
+
+var sensitiveJSONKeyPattern = regexp.MustCompile(`(?i)^(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|secret|token|authorization|cookie|set-cookie)$`)
