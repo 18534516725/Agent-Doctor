@@ -25,3 +25,17 @@ func TestUnknownCommandPrintsUsageToStderr(t *testing.T) {
 		t.Fatalf("missing usage text: %q", stderr.String())
 	}
 }
+
+func TestMCPServeStartsReadOnlyProtocolServer(t *testing.T) {
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n")
+	var out bytes.Buffer
+	code := RunWithInput([]string{"mcp", "serve"}, input, &out, io.Discard)
+	if code != 0 {
+		t.Fatalf("code=%d output=%q", code, out.String())
+	}
+	for _, want := range []string{`"name":"agent-doctor"`, `"title":"Agent Doctor"`, `read-only`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("MCP response missing %q: %s", want, out.String())
+		}
+	}
+}
