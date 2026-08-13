@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/18534516725/Agent-Doctor/schemas/event-v1.schema.json",
+  "title": "Agent Doctor Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "sessionId",
+    "projectId",
+    "timestamp",
+    "client",
+    "model",
+    "eventType",
+    "payload",
+    "provenance",
+    "precision"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "projectId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName"],
+      "properties": {
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "eventType": {
+      "enum": [
+        "session.started",
+        "session.resumed",
+        "session.completed",
+        "session.cancelled",
+        "user.prompted",
+        "user.corrected",
+        "tool.started",
+        "tool.completed",
+        "tool.failed",
+        "file.read",
+        "file.changed",
+        "command.started",
+        "command.completed",
+        "validation.completed",
+        "context.compacted",
+        "context.injected",
+        "model.changed",
+        "usage.reported",
+        "cost.reported",
+        "quota.reported"
+      ]
+    },
+    "payload": { "type": ["object", "null"] },
+    "provenance": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "precision": { "enum": ["exact", "estimated", "unavailable"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "precision": { "const": "unavailable" } } },
+      "then": { "properties": { "payload": { "type": ["null", "object"], "maxProperties": 0 } } }
+    }
+  ]
+}
+

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "eventId": "event-1",
+  "sessionId": "session-1",
+  "projectId": "project-hash",
+  "timestamp": "2026-08-13T09:00:00Z",
+  "client": { "name": "codex", "version": "1.0.0" },
+  "model": { "displayName": "public-model" },
+  "eventType": "session.started",
+  "payload": { "source": "client-event" },
+  "provenance": "client-event",
+  "precision": "exact"
+}
+
