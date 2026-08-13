@@ -1,0 +1,9 @@
+{
+  "name": "agent-doctor-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm --dir dashboard build",
+    "test": "pnpm --dir dashboard test --run"
+  }
+}
