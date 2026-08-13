@@ -7,6 +7,7 @@ Agent Doctor 是本地优先的 AI 编程任务诊断工具：它不上传完整
 | 使用场景 | 当前状态 | 能得到什么 |
 | --- | --- | --- |
 | Claude Code 官方 hooks | 已接通 | 会话开始/结束、工具成功或失败、上下文压缩等经过脱敏的生命周期事件 |
+| Cline 官方 hooks | 已接通 | 任务状态、工具事件和上下文压缩等经过脱敏的生命周期事件 |
 | Codex / Claude Code MCP | 已接通 | `get_task_evidence` 可读取本机已有任务的安全时间线 |
 | Cursor、Windsurf、Roo Code、Continue | MCP 配置已提供 | 可以调用只读工具；如果客户端没有提供兼容本地事件，会明确显示“不可用” |
 | OpenCode | 插件基础已提供 | 事件归一化与 fail-open 行为已实现；完整安装/发布流程仍在完善 |

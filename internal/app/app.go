@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/internal/adapters/claudecode"
+	"github.com/18534516725/Agent-Doctor/internal/adapters/cline"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
 	"github.com/18534516725/Agent-Doctor/internal/storage"
@@ -52,6 +54,17 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 			return database.InsertEvent(context.Background(), event)
 		}, stderr, time.Now)
 	}
+	if len(args) == 3 && args[0] == "hook" && args[1] == "cline" {
+		database, err := openLocalStore()
+		if err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: local lifecycle event was not recorded; Cline will continue normally")
+			return 0
+		}
+		defer database.Close()
+		return runClineHook(input, func(event events.Event) error {
+			return database.InsertEvent(context.Background(), event)
+		}, stderr)
+	}
 
 	fmt.Fprintln(stderr, "usage: agent-doctor <command>")
 	return 2
@@ -59,6 +72,21 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 
 func runClaudeCodeHook(input io.Reader, insert func(events.Event) error, diagnostics io.Writer, now func() time.Time) int {
 	return claudecode.IngestFailOpen(input, now(), insert, diagnostics)
+}
+
+func runClineHook(input io.Reader, insert func(events.Event) error, diagnostics io.Writer) int {
+	raw, err := io.ReadAll(io.LimitReader(input, events.MaxPayloadBytes+1))
+	if err == nil && len(raw) <= events.MaxPayloadBytes {
+		var event events.Event
+		event, err = cline.NormalizeHook(json.RawMessage(raw))
+		if err == nil && insert != nil {
+			err = insert(event)
+		}
+	}
+	if err != nil || len(raw) > events.MaxPayloadBytes || insert == nil {
+		fmt.Fprintln(diagnostics, "agent-doctor: local lifecycle event was not recorded; Cline will continue normally")
+	}
+	return 0
 }
 
 func openLocalStore() (*storage.DB, error) {

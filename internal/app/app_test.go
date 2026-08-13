@@ -65,6 +65,24 @@ func TestClaudeCodeHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
 	}
 }
 
+func TestClineHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
+	input := strings.NewReader(`{"taskId":"task-1","hookName":"PreCompact","clineVersion":"1.2.3","timestamp":"1786600800000","workspaceRoots":["/private/project"],"model":{"provider":"private","slug":"public-model"},"preCompact":{"conversationLength":10,"estimatedTokens":100},"transcript":"must-not-store"}`)
+	var captured events.Event
+	code := runClineHook(input, func(event events.Event) error {
+		captured = event
+		return nil
+	}, io.Discard)
+	if code != 0 || captured.EventType != events.EventContextCompacted || captured.Client.Name != "cline" {
+		t.Fatalf("code=%d event=%+v", code, captured)
+	}
+	encoded := string(captured.Payload)
+	for _, forbidden := range []string{"private/project", "must-not-store", "private\""} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("normalized hook leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
 func TestLocalMCPBackendReturnsSanitizedTaskEvidence(t *testing.T) {
 	backend := localMCPBackend{store: fakeLocalEvidenceStore{events: []events.Event{{
 		SessionID: "session-1", EventType: events.EventContextCompacted,

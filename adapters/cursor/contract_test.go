@@ -18,7 +18,7 @@ func TestCursorIntegrationUsesLocalStdioAndMinimalProjectRule(t *testing.T) {
 		t.Fatalf("unexpected MCP registration: %#v", agentDoctor)
 	}
 	arguments := agentDoctor["args"].([]any)
-	if len(arguments) != 1 || arguments[0] != "mcp" {
+	if len(arguments) != 2 || arguments[0] != "mcp" || arguments[1] != "serve" {
 		t.Fatalf("unexpected MCP args: %#v", arguments)
 	}
 	rule, err := os.ReadFile("rules/agent-doctor.mdc")
