@@ -1,6 +1,6 @@
 {
   "name": "@nexotoken/agent-doctor",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Verified one-command bootstrap installer for Agent Doctor",
   "type": "module",
   "license": "Apache-2.0",

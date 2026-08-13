@@ -11,6 +11,7 @@ dashboard/dist/
 dashboard/test-results/
 dashboard/playwright-report/
 *.tsbuildinfo
+/bin/
 
 # Dependencies
 node_modules/
