@@ -25,7 +25,7 @@ func (server *Server) enforceLocalBoundary(next http.Handler) http.Handler {
 			response.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if request.URL.Path == "/health" {
+		if request.URL.Path == "/health" || (request.Method == http.MethodGet && (request.URL.Path == "/" || strings.HasPrefix(request.URL.Path, "/assets/"))) {
 			next.ServeHTTP(response, request)
 			return
 		}

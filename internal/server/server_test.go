@@ -229,6 +229,23 @@ func TestDaemonTokensAreRandom256BitValues(t *testing.T) {
 	}
 }
 
+func TestEmbeddedDashboardBootstrapsAProtectedLocalSession(t *testing.T) {
+	service := newTestServer(t)
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `name="agent-doctor-token"`) || !strings.Contains(body, service.Token()) || !strings.Contains(body, `id="root"`) {
+		t.Fatalf("dashboard bootstrap incomplete: %s", body)
+	}
+	if strings.Contains(response.Header().Get("Content-Security-Policy"), "https:") {
+		t.Fatalf("dashboard CSP permits remote assets: %s", response.Header().Get("Content-Security-Policy"))
+	}
+}
+
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	service, err := New(Config{Version: "0.1.0-dev", Store: &memoryEventStore{}})

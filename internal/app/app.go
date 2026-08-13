@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/internal/adapters/claudecode"
 	"github.com/18534516725/Agent-Doctor/internal/adapters/cline"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/installer"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
+	localserver "github.com/18534516725/Agent-Doctor/internal/server"
 	"github.com/18534516725/Agent-Doctor/internal/storage"
 )
 
-const developmentVersion = "dev"
+var Version = "dev"
 
 // Run dispatches CLI commands and returns a process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
@@ -28,8 +33,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 // which wires the protocol to the process standard input.
 func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 1 && args[0] == "version" {
-		fmt.Fprintf(stdout, "agent-doctor %s\n", developmentVersion)
+		fmt.Fprintf(stdout, "agent-doctor %s\n", Version)
 		return 0
+	}
+	if len(args) >= 1 && (args[0] == "start" || args[0] == "dashboard") {
+		return runLocalDashboard(args[1:], stdout, stderr)
+	}
+	if len(args) == 2 && args[0] == "doctor" && args[1] == "--json" {
+		return runDoctorJSON(stdout, stderr)
 	}
 	if len(args) == 2 && args[0] == "mcp" && args[1] == "serve" {
 		backend := mcp.ToolBackend(unavailableMCPBackend{})
@@ -37,7 +48,7 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 			defer database.Close()
 			backend = localMCPBackend{store: database}
 		}
-		if err := mcp.NewServer(developmentVersion, backend).Serve(context.Background(), input, stdout); err != nil {
+		if err := mcp.NewServer(Version, backend).Serve(context.Background(), input, stdout); err != nil {
 			fmt.Fprintln(stderr, "agent-doctor MCP server failed")
 			return 1
 		}
@@ -66,8 +77,96 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 		}, stderr)
 	}
 
-	fmt.Fprintln(stderr, "usage: agent-doctor <command>")
+	printUsage(stderr)
 	return 2
+}
+
+func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
+	once := len(args) == 1 && args[0] == "--once"
+	if len(args) > 0 && !once {
+		printUsage(stderr)
+		return 2
+	}
+	database, err := openLocalStore()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local database unavailable")
+		return 1
+	}
+	defer database.Close()
+	service, err := localserver.New(localserver.Config{Version: Version, Store: database})
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local dashboard unavailable")
+		return 1
+	}
+	listener, err := service.Listen()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: loopback listener unavailable")
+		return 1
+	}
+	url := "http://" + listener.Addr().String() + "/"
+	if once {
+		_ = listener.Close()
+		fmt.Fprintln(stdout, url)
+		return 0
+	}
+	fmt.Fprintln(stdout, "Agent Doctor is ready:", url)
+	fmt.Fprintln(stdout, "Open this local URL in your browser. Press Ctrl+C to stop.")
+	interrupt, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	serveErrors := make(chan error, 1)
+	go func() { serveErrors <- service.Serve(listener) }()
+	select {
+	case <-interrupt.Done():
+		shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := service.Shutdown(shutdownContext); err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: dashboard shutdown incomplete")
+			return 1
+		}
+		return 0
+	case err := <-serveErrors:
+		if err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: dashboard server stopped unexpectedly")
+			return 1
+		}
+		return 0
+	}
+}
+
+func runDoctorJSON(stdout, stderr io.Writer) int {
+	database, err := openLocalStore()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local database unavailable")
+		return 1
+	}
+	defer database.Close()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: home directory unavailable")
+		return 1
+	}
+	clients, err := installer.DetectClients(home, runtime.GOOS)
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: client detection unavailable")
+		return 1
+	}
+	detected := make([]string, 0)
+	for _, client := range clients {
+		if client.Detected {
+			detected = append(detected, client.Name)
+		}
+	}
+	result := map[string]any{"status": "ready", "version": Version, "database": map[string]any{"schemaVersion": database.SchemaVersion(), "readOnlyRecovery": database.ReadOnly()}, "detectedClients": detected}
+	if err := json.NewEncoder(stdout).Encode(result); err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: status encoding failed")
+		return 1
+	}
+	return 0
+}
+
+func printUsage(writer io.Writer) {
+	fmt.Fprintln(writer, "usage: agent-doctor <command>")
+	fmt.Fprintln(writer, "commands: setup, start, dashboard, diagnose, compare, context, costs, doctor, pause, export, forget, run, uninstall, mcp serve, version")
 }
 
 func runClaudeCodeHook(input io.Reader, insert func(events.Event) error, diagnostics io.Writer, now func() time.Time) int {
@@ -90,11 +189,16 @@ func runClineHook(input io.Reader, insert func(events.Event) error, diagnostics 
 }
 
 func openLocalStore() (*storage.DB, error) {
-	configDirectory, err := os.UserConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("resolve local data directory: %w", err)
+	configDirectory := os.Getenv("AGENT_DOCTOR_CONFIG_DIR")
+	if configDirectory == "" {
+		var err error
+		configDirectory, err = os.UserConfigDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve local data directory: %w", err)
+		}
+		configDirectory = filepath.Join(configDirectory, "AgentDoctor")
 	}
-	return storage.Open(filepath.Join(configDirectory, "AgentDoctor", "doctor.db"))
+	return storage.Open(filepath.Join(configDirectory, "doctor.db"))
 }
 
 // unavailableMCPBackend is intentionally conservative until the user has

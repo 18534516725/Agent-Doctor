@@ -25,8 +25,31 @@ func TestUnknownCommandPrintsUsageToStderr(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code=%d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "usage: agent-doctor <command>") {
+	if !strings.Contains(stderr.String(), "usage: agent-doctor <command>") || !strings.Contains(stderr.String(), "setup") || !strings.Contains(stderr.String(), "dashboard") {
 		t.Fatalf("missing usage text: %q", stderr.String())
+	}
+}
+
+func TestStartOncePrintsLocalDashboardURLWithoutOpeningABrowser(t *testing.T) {
+	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
+	var out bytes.Buffer
+	code := Run([]string{"start", "--once"}, &out, io.Discard)
+	if code != 0 || !strings.Contains(out.String(), "http://127.0.0.1:") || strings.Contains(strings.ToLower(out.String()), "browser opened") {
+		t.Fatalf("code=%d output=%q", code, out.String())
+	}
+}
+
+func TestDoctorJSONReportsLocalInstallationState(t *testing.T) {
+	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
+	var out bytes.Buffer
+	code := Run([]string{"doctor", "--json"}, &out, io.Discard)
+	if code != 0 {
+		t.Fatalf("code=%d output=%q", code, out.String())
+	}
+	for _, expected := range []string{`"status":"ready"`, `"database"`, `"detectedClients"`} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("doctor output missing %s: %s", expected, out.String())
+		}
 	}
 }
 

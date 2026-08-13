@@ -35,6 +35,8 @@ type settingsState struct {
 func (server *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	settings := &settingsState{privacy: privacySettings{RetentionDays: 30}}
+	mux.HandleFunc("GET /", server.dashboardHome)
+	mux.HandleFunc("GET /assets/", server.dashboardAsset)
 	mux.HandleFunc("GET /health", server.health)
 	mux.HandleFunc("POST /api/v1/events", server.ingestEvent)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", server.dashboardSummary)
@@ -167,6 +169,7 @@ func (state *settingsState) putPrivacy(response http.ResponseWriter, request *ht
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Cache-Control", "no-store")
+		response.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		response.Header().Set("X-Frame-Options", "DENY")
 		response.Header().Set("Referrer-Policy", "no-referrer")
