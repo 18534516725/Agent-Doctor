@@ -16,6 +16,9 @@ dashboard.
 The repository does not currently publish an installable release. Do not use
 unofficial binaries that claim to be Agent Doctor.
 
+For the current capability matrix, local MCP verification, and data boundaries,
+read [the usage guide](docs/usage.md).
+
 ## Privacy baseline
 
 - Data stays on the user's device by default.
