@@ -1,0 +1,20 @@
+{
+  "name": "@nexotoken/agent-doctor",
+  "version": "0.1.0",
+  "description": "Verified one-command bootstrap installer for Agent Doctor",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/18534516725/Agent-Doctor.git"
+  },
+  "bin": {
+    "agent-doctor-install": "./bin/setup.mjs"
+  },
+  "files": ["bin/setup.mjs"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "publishConfig": { "access": "public" }
+}
