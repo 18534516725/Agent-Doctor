@@ -17,9 +17,10 @@ import (
 )
 
 type memoryEventStore struct {
-	mu      sync.Mutex
-	events  []events.Event
-	summary dashboard.Summary
+	mu       sync.Mutex
+	events   []events.Event
+	summary  dashboard.Summary
+	snapshot dashboard.Snapshot
 }
 
 func (store *memoryEventStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -45,6 +46,10 @@ func (store *memoryEventStore) ReadOnly() bool { return false }
 
 func (store *memoryEventStore) DashboardSummary(context.Context) (dashboard.Summary, error) {
 	return store.summary, nil
+}
+
+func (store *memoryEventStore) DashboardSnapshot(context.Context) (dashboard.Snapshot, error) {
+	return store.snapshot, nil
 }
 
 func TestListenBindsOnlyLoopback(t *testing.T) {
@@ -160,6 +165,59 @@ func TestDashboardSummaryReturnsOnlySafeAggregates(t *testing.T) {
 		if strings.Contains(strings.ToLower(body), forbidden) {
 			t.Fatalf("summary leaked %q: %s", forbidden, body)
 		}
+	}
+}
+
+func TestDashboardSnapshotPowersEveryPageWithoutSensitivePayloads(t *testing.T) {
+	store := &memoryEventStore{snapshot: dashboard.Snapshot{
+		Sessions: []dashboard.Session{{ID: "session-1", Client: "codex", Model: "model-a", Status: "active", EventCount: 4}},
+		Costs:    dashboard.Costs{Currency: "USD", ExactMicros: 120000, EstimatedMicros: 30000, Unavailable: 1},
+		Memories: dashboard.Memories{Active: 2, Candidate: 1, Disabled: 0},
+		Trends:   []dashboard.TrendPoint{{Date: "2026-08-13", Sessions: 1, Events: 4}},
+	}}
+	service, err := New(Config{Version: "0.1.0-dev", Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/dashboard/snapshot", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, expected := range []string{`"session-1"`, `"exactMicros":120000`, `"active":2`, `"2026-08-13"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("snapshot missing %s: %s", expected, body)
+		}
+	}
+	for _, forbidden := range []string{"payload", "prompt", "fileContents", "credential", "upstream"} {
+		if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
+			t.Fatalf("snapshot leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestSessionEvidenceNeverReturnsEventPayload(t *testing.T) {
+	event := validServerEvent()
+	event.Payload = json.RawMessage(`{"detail":"payload-secret-marker"}`)
+	store := &memoryEventStore{events: []events.Event{event}}
+	service, err := New(Config{Version: "0.1.0-dev", Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/sessions/session-server-1", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if strings.Contains(body, "payload-secret-marker") || strings.Contains(body, `"payload"`) {
+		t.Fatalf("session evidence leaked payload: %s", body)
+	}
+	if !strings.Contains(body, `"eventType":"session.started"`) || !strings.Contains(body, `"precision":"exact"`) {
+		t.Fatalf("safe event metadata missing: %s", body)
 	}
 }
 

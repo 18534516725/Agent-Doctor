@@ -38,6 +38,7 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /health", server.health)
 	mux.HandleFunc("POST /api/v1/events", server.ingestEvent)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", server.dashboardSummary)
+	mux.HandleFunc("GET /api/v1/dashboard/snapshot", server.dashboardSnapshot)
 	mux.HandleFunc("GET /api/v1/sessions/", server.sessionDetails)
 	mux.HandleFunc("GET /api/v1/settings/privacy", settings.getPrivacy)
 	mux.HandleFunc("PUT /api/v1/settings/privacy", settings.putPrivacy)
@@ -100,6 +101,19 @@ func (server *Server) dashboardSummary(response http.ResponseWriter, _ *http.Req
 	})
 }
 
+func (server *Server) dashboardSnapshot(response http.ResponseWriter, request *http.Request) {
+	snapshot := dashboard.Snapshot{Sessions: []dashboard.Session{}, Trends: []dashboard.TrendPoint{}}
+	if provider, ok := server.store.(dashboard.SnapshotProvider); ok {
+		var err error
+		snapshot, err = provider.DashboardSnapshot(request.Context())
+		if err != nil {
+			writeError(response, http.StatusServiceUnavailable, "dashboard storage unavailable")
+			return
+		}
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"schemaVersion": 1, "snapshot": snapshot})
+}
+
 func (server *Server) sessionDetails(response http.ResponseWriter, request *http.Request) {
 	sessionID := strings.TrimPrefix(request.URL.Path, "/api/v1/sessions/")
 	if sessionID == "" || strings.Contains(sessionID, "/") || len(sessionID) > 128 {
@@ -111,7 +125,21 @@ func (server *Server) sessionDetails(response http.ResponseWriter, request *http
 		writeError(response, http.StatusServiceUnavailable, "session storage unavailable")
 		return
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"sessionId": sessionID, "events": stored})
+	type safeEvent struct {
+		EventID    string           `json:"eventId"`
+		Timestamp  string           `json:"timestamp"`
+		EventType  string           `json:"eventType"`
+		Provenance string           `json:"provenance"`
+		Precision  events.Precision `json:"precision"`
+	}
+	evidence := make([]safeEvent, 0, len(stored))
+	for _, event := range stored {
+		evidence = append(evidence, safeEvent{
+			EventID: event.EventID, Timestamp: event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+			EventType: event.EventType, Provenance: event.Provenance, Precision: event.Precision,
+		})
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"sessionId": sessionID, "events": evidence})
 }
 
 func (state *settingsState) getPrivacy(response http.ResponseWriter, _ *http.Request) {

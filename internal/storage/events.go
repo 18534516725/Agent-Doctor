@@ -137,6 +137,72 @@ func (database *DB) DashboardSummary(ctx context.Context) (dashboard.Summary, er
 	return summary, nil
 }
 
+// DashboardSnapshot returns only bounded aggregates and session labels. It does
+// not select event payloads, repository paths, prompts, source or credentials.
+func (database *DB) DashboardSnapshot(ctx context.Context) (dashboard.Snapshot, error) {
+	snapshot := dashboard.Snapshot{Sessions: []dashboard.Session{}, Trends: []dashboard.TrendPoint{}}
+	rows, err := database.sql.QueryContext(ctx, `
+		SELECT s.id, c.name, m.display_name, s.status, s.started_at, COUNT(e.id)
+		FROM sessions s
+		JOIN clients c ON c.id=s.client_id
+		JOIN models m ON m.id=s.model_id
+		LEFT JOIN events e ON e.session_id=s.id
+		GROUP BY s.id, c.name, m.display_name, s.status, s.started_at
+		ORDER BY s.started_at DESC LIMIT 50`)
+	if err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("query dashboard sessions: %w", err)
+	}
+	for rows.Next() {
+		var item dashboard.Session
+		if err := rows.Scan(&item.ID, &item.Client, &item.Model, &item.Status, &item.StartedAt, &item.EventCount); err != nil {
+			_ = rows.Close()
+			return dashboard.Snapshot{}, fmt.Errorf("scan dashboard session: %w", err)
+		}
+		snapshot.Sessions = append(snapshot.Sessions, item)
+	}
+	if err := rows.Close(); err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("close dashboard sessions: %w", err)
+	}
+	if err := database.sql.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(currency), 'USD'),
+			COALESCE(SUM(CASE WHEN amount_precision='exact' THEN amount_micros ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN amount_precision='estimated' THEN amount_micros ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN amount_precision='unavailable' THEN 1 ELSE 0 END), 0)
+		FROM cost_records`).Scan(&snapshot.Costs.Currency, &snapshot.Costs.ExactMicros, &snapshot.Costs.EstimatedMicros, &snapshot.Costs.Unavailable); err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("query dashboard costs: %w", err)
+	}
+	if err := database.sql.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(SUM(CASE WHEN state='active' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN state='candidate' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN state='disabled' THEN 1 ELSE 0 END), 0)
+		FROM memories WHERE state != 'deleted'`).Scan(&snapshot.Memories.Active, &snapshot.Memories.Candidate, &snapshot.Memories.Disabled); err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("query dashboard memories: %w", err)
+	}
+	trendRows, err := database.sql.QueryContext(ctx, `
+		SELECT substr(s.started_at, 1, 10), COUNT(DISTINCT s.id), COUNT(e.id)
+		FROM sessions s LEFT JOIN events e ON e.session_id=s.id
+		GROUP BY substr(s.started_at, 1, 10) ORDER BY substr(s.started_at, 1, 10) DESC LIMIT 30`)
+	if err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("query dashboard trends: %w", err)
+	}
+	for trendRows.Next() {
+		var point dashboard.TrendPoint
+		if err := trendRows.Scan(&point.Date, &point.Sessions, &point.Events); err != nil {
+			_ = trendRows.Close()
+			return dashboard.Snapshot{}, fmt.Errorf("scan dashboard trend: %w", err)
+		}
+		snapshot.Trends = append(snapshot.Trends, point)
+	}
+	if err := trendRows.Close(); err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("close dashboard trends: %w", err)
+	}
+	if err := database.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM comparisons").Scan(&snapshot.ComparisonCount); err != nil {
+		return dashboard.Snapshot{}, fmt.Errorf("query dashboard comparisons: %w", err)
+	}
+	return snapshot, nil
+}
+
 func lookupOrCreateClient(ctx context.Context, transaction *sql.Tx, client events.ClientRef) (int64, error) {
 	if _, err := transaction.ExecContext(ctx,
 		"INSERT INTO clients(name, version) VALUES(?, ?) ON CONFLICT(name, version) DO NOTHING",
