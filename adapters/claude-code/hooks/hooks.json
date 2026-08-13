@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "SessionStart"], "timeout": 0.5}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "PreCompact"], "timeout": 0.5}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "PostToolUse"], "timeout": 0.5}]}],
+    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "PostToolUseFailure"], "timeout": 0.5}]}],
+    "TaskCreated": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "TaskCreated"], "timeout": 0.5}]}],
+    "TaskCompleted": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "TaskCompleted"], "timeout": 0.5}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "Stop"], "timeout": 0.5}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "agent-doctor", "args": ["hook", "claude-code", "SessionEnd"], "timeout": 0.5}]}]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "agent-doctor",
+  "displayName": "Agent Doctor",
+  "version": "0.1.0",
+  "description": "Local-first task diagnosis, transparent context memory, and cost visibility for Claude Code.",
+  "author": {
+    "name": "NexoToken",
+    "url": "https://github.com/18534516725"
+  },
+  "homepage": "https://github.com/18534516725/Agent-Doctor",
+  "repository": "https://github.com/18534516725/Agent-Doctor",
+  "license": "Apache-2.0",
+  "keywords": ["claude-code", "diagnostics", "context", "cost", "local-first"]
+}
