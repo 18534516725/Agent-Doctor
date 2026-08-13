@@ -1,0 +1,19 @@
+{
+  "name": "@nexotoken/agent-doctor-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.18"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

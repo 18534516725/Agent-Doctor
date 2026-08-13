@@ -1,0 +1,4 @@
+#!/bin/sh
+agent-doctor hook cline TaskComplete 2>/dev/null || true
+printf '%s\n' '{"cancel":false,"contextModification":"","errorMessage":""}'
+exit 0
