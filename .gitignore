@@ -10,6 +10,7 @@ coverage/
 dashboard/dist/
 dashboard/test-results/
 dashboard/playwright-report/
+*.tsbuildinfo
 
 # Dependencies
 node_modules/
