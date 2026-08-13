@@ -4,8 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/migrations"
@@ -18,12 +23,30 @@ type migration struct {
 }
 
 func defaultMigrations() []migration {
-	contents, err := migrations.Files.ReadFile("001_initial.sql")
+	paths, err := fs.Glob(migrations.Files, "*.sql")
 	if err != nil {
-		panic(fmt.Sprintf("embedded migration missing: %v", err))
+		panic(fmt.Sprintf("enumerate embedded migrations: %v", err))
 	}
-	return []migration{{version: 1, name: "initial", sql: string(contents)}}
+	result := make([]migration, 0, len(paths))
+	for _, path := range paths {
+		match := migrationFilenamePattern.FindStringSubmatch(filepath.Base(path))
+		if match == nil {
+			panic(fmt.Sprintf("invalid embedded migration filename %q", path))
+		}
+		version, err := strconv.Atoi(match[1])
+		if err != nil {
+			panic(fmt.Sprintf("invalid embedded migration version %q: %v", path, err))
+		}
+		contents, err := migrations.Files.ReadFile(path)
+		if err != nil {
+			panic(fmt.Sprintf("read embedded migration %q: %v", path, err))
+		}
+		result = append(result, migration{version: version, name: strings.ReplaceAll(match[2], "_", "-"), sql: string(contents)})
+	}
+	return result
 }
+
+var migrationFilenamePattern = regexp.MustCompile(`^(\d{3})_([a-z0-9_]+)\.sql$`)
 
 func migrate(connection *sql.DB, path string, migrationSet []migration, now func() time.Time, shouldBackup bool) (int, string, error) {
 	current := currentSchemaVersion(connection)
