@@ -1,0 +1,11 @@
+---
+description: Request a compact, local Agent Doctor context capsule when it helps the current task.
+alwaysApply: false
+---
+
+When diagnostics or prior project decisions are relevant, call the local
+`agent-doctor` MCP tool `get_context_capsule` for the current project.
+
+Do not paste source files, transcript text, prompt history, or API key material
+into a rule. Treat returned context as evidence: retain its provenance and
+precision labels, and say when the context is unavailable instead of guessing.
