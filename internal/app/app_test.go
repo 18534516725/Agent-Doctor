@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -62,4 +63,32 @@ func TestClaudeCodeHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
 			t.Fatalf("normalized hook leaked %q: %s", forbidden, encoded)
 		}
 	}
+}
+
+func TestLocalMCPBackendReturnsSanitizedTaskEvidence(t *testing.T) {
+	backend := localMCPBackend{store: fakeLocalEvidenceStore{events: []events.Event{{
+		SessionID: "session-1", EventType: events.EventContextCompacted,
+		Timestamp: time.Date(2026, 8, 13, 14, 0, 0, 0, time.UTC),
+		Payload:   []byte(`{"workingDirectoryHash":"sha256:example","prompt":"must-not-leak"}`),
+		Precision: events.PrecisionExact,
+	}}}}
+	evidence, err := backend.Execute(context.Background(), "get_task_evidence", map[string]any{"sessionId": "session-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Precision != "exact" || len(evidence.Items) != 1 || !strings.Contains(evidence.Items[0].Value, "context.compacted") {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+	encoded := evidence.Summary + " " + evidence.Items[0].Label + " " + evidence.Items[0].Value
+	for _, forbidden := range []string{"must-not-leak", "workingDirectoryHash", "sha256:example"} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("MCP evidence leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+type fakeLocalEvidenceStore struct{ events []events.Event }
+
+func (store fakeLocalEvidenceStore) ListSessionEvents(_ context.Context, _ string) ([]events.Event, error) {
+	return store.events, nil
 }
