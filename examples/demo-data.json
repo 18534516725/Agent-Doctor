@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "demo-event-001",
+      "sessionId": "demo-session-001",
+      "projectId": "demo-project-hash",
+      "timestamp": "2026-08-13T10:00:00Z",
+      "client": { "name": "codex", "version": "demo" },
+      "model": { "displayName": "demo-model" },
+      "eventType": "session.started",
+      "payload": { "source": "demo-fixture" },
+      "provenance": "demo-fixture",
+      "precision": "exact"
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "demo-event-002",
+      "sessionId": "demo-session-001",
+      "projectId": "demo-project-hash",
+      "timestamp": "2026-08-13T10:03:00Z",
+      "client": { "name": "codex", "version": "demo" },
+      "model": { "displayName": "demo-model" },
+      "eventType": "validation.completed",
+      "payload": { "status": "passed", "durationMs": 1200 },
+      "provenance": "demo-fixture",
+      "precision": "exact"
+    }
+  ],
+  "notice": "Synthetic local demo data. It contains no prompt, source code, file path, command, credential, or provider detail."
+}
