@@ -1,0 +1,50 @@
+version: 2
+project_name: agent-doctor
+
+before:
+  hooks:
+    - ./scripts/embed-dashboard.sh
+    - go test ./... -race -count=1
+
+builds:
+  - id: agent-doctor
+    main: ./cmd/agent-doctor
+    binary: agent-doctor
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/18534516725/Agent-Doctor/internal/app.Version={{.Version}}
+
+archives:
+  - id: agent-doctor-archives
+    ids: [agent-doctor]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "agent-doctor_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE*
+      - README.md
+      - docs/install.md
+
+checksum:
+  name_template: SHA256SUMS.txt
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+release:
+  github:
+    owner: "18534516725"
+    name: Agent-Doctor
+  extra_files:
+    - glob: ./install.sh
+    - glob: ./install.ps1
+
+changelog:
+  use: git
+  sort: asc

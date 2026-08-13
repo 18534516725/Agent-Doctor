@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: go test ./... -race -count=1
+      - run: pnpm --dir dashboard test -- --run
+      - run: ./scripts/embed-dashboard.sh
+        shell: bash
+      - run: go build ./cmd/agent-doctor
+      - run: ./scripts/check-secrets.sh
+        shell: bash
+      - run: git diff --check
+
+  release-snapshot:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --snapshot --clean
+      - run: node scripts/generate-release-manifest.mjs dist "$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync("dist/metadata.json", "utf8")).version)')"
+        shell: bash
+      - run: ./scripts/verify-release.sh dist
