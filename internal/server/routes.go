@@ -15,6 +15,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/guidance"
+	"github.com/18534516725/Agent-Doctor/internal/insights"
 	"github.com/18534516725/Agent-Doctor/internal/realtime"
 )
 
@@ -46,6 +47,11 @@ type guidanceStore interface {
 	SaveGuidanceControlLevel(context.Context, string, guidance.ControlLevel, time.Time) error
 }
 
+type insightsStore interface {
+	CostIntelligence(context.Context, int) (insights.CostIntelligence, error)
+	RequestTrends(context.Context, int) (insights.RequestTrends, error)
+}
+
 func (server *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.dashboardHome)
@@ -59,6 +65,8 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/conversations/{id}", server.conversationDetails)
 	mux.HandleFunc("GET /api/v1/connections", server.connectionList)
 	mux.HandleFunc("GET /api/v1/analysis/live", server.liveAnalysis)
+	mux.HandleFunc("GET /api/v1/insights/costs", server.costInsights)
+	mux.HandleFunc("GET /api/v1/insights/trends", server.requestTrends)
 	mux.HandleFunc("GET /api/v1/guidance/active", server.activeGuidance)
 	mux.HandleFunc("GET /api/v1/projects/{id}/guidance", server.getGuidanceControlLevel)
 	mux.HandleFunc("PUT /api/v1/projects/{id}/guidance", server.putGuidanceControlLevel)
@@ -67,6 +75,36 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/settings/privacy", server.getPrivacy)
 	mux.HandleFunc("PUT /api/v1/settings/privacy", server.putPrivacy)
 	return securityHeaders(mux)
+}
+
+func (server *Server) costInsights(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.store.(insightsStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "cost insights unavailable")
+		return
+	}
+	days, _ := strconv.Atoi(request.URL.Query().Get("days"))
+	result, err := store.CostIntelligence(request.Context(), days)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "cost insights unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
+}
+
+func (server *Server) requestTrends(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.store.(insightsStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "request trends unavailable")
+		return
+	}
+	days, _ := strconv.Atoi(request.URL.Query().Get("days"))
+	result, err := store.RequestTrends(request.Context(), days)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "request trends unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (server *Server) guidanceStore(response http.ResponseWriter) (guidanceStore, bool) {

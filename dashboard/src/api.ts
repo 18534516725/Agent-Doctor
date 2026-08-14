@@ -21,6 +21,8 @@ export type ControlLevel = 'observe' | 'guide' | 'guard' | 'autopilot';
 export type GuidanceDecision = { decisionId: string; sessionId: string; projectId: string; kind: GuidanceKind; severity: GuidanceSeverity; finding: string; evidence: string[]; confidence: string; instruction: string; prohibitedActions: string[]; verification: string[]; evidenceFingerprint: string; expiresAt: string; createdAt: string };
 export type GuidanceStatus = { state: 'active' | 'observing' | 'stale' | 'unavailable' | 'error'; client: string; advice: boolean; enforcement: boolean; lastEvidenceAt?: string; explanation: string };
 export type GuidanceFeed = { items: GuidanceDecision[]; status: GuidanceStatus };
+export type CostIntelligence = { days: number; usage: { inputTokens: number; cachedTokens: number; uncachedInputTokens: number; outputTokens: number; reasoningTokens: number; cacheRate: number }; cost: { currency: string; exactMicros: number; estimatedMicros: number; unknownRequests: number; availability: 'complete' | 'partial' | 'unavailable' }; rankings: { dimension: string; label: string; requests: number; uncachedInputTokens: number; outputTokens: number; exactMicros: number; unknownCosts: number }[]; unknown: { requestId: string; model: string; client: string; startedAt: string; provenance: string }[]; limitations: string[] };
+export type RequestTrends = { days: number; points: { date: string; requests: number; failed: number; failureRate: number; p50LatencyMs: number; p95LatencyMs: number; uncachedInputTokens: number; outputTokens: number; cachedTokens: number; cacheRate: number }[]; limitations: string[] };
 
 export interface DashboardAPI {
   loadSummary(): Promise<Summary>;
@@ -33,6 +35,8 @@ export interface DashboardAPI {
   loadConnections(): Promise<ClientConnection[]>;
   loadLiveAnalysis(): Promise<LiveAnalysis>;
   loadActiveGuidance(): Promise<GuidanceFeed>;
+  loadCostIntelligence(days: 7 | 30): Promise<CostIntelligence>;
+  loadRequestTrends(days: 7 | 30): Promise<RequestTrends>;
   loadGuidanceControlLevel(projectId: string): Promise<{ controlLevel: ControlLevel }>;
   updateGuidanceControlLevel(projectId: string, controlLevel: ControlLevel): Promise<{ controlLevel: ControlLevel }>;
   deleteSession(id: string): Promise<void>;
@@ -58,6 +62,8 @@ export const localAPI: DashboardAPI = {
   async loadConnections() { return (await request<{ items: ClientConnection[] }>('/api/v1/connections')).items; },
   loadLiveAnalysis: () => request('/api/v1/analysis/live'),
   loadActiveGuidance: () => request('/api/v1/guidance/active'),
+  loadCostIntelligence: (days) => request(`/api/v1/insights/costs?days=${days}`),
+  loadRequestTrends: (days) => request(`/api/v1/insights/trends?days=${days}`),
   loadGuidanceControlLevel: (projectId) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance`),
   updateGuidanceControlLevel: (projectId, controlLevel) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance`, { method: 'PUT', body: JSON.stringify({ controlLevel }) }),
   deleteSession: (id) => request(`/api/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
