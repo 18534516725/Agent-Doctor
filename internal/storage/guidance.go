@@ -100,6 +100,29 @@ func (database *DB) ListActiveGuidance(ctx context.Context, now time.Time, limit
 	return decisions, nil
 }
 
+func (database *DB) GuidanceStatus(ctx context.Context, now time.Time) (guidance.Status, error) {
+	var occurredAt, client string
+	err := database.sql.QueryRowContext(ctx, `
+		SELECT e.occurred_at, c.name
+		FROM events e JOIN clients c ON c.id=e.client_id
+		ORDER BY e.occurred_at DESC, e.id DESC LIMIT 1`).Scan(&occurredAt, &client)
+	if errors.Is(err, sql.ErrNoRows) {
+		return guidance.ResolveStatus(nil, "", false, now.UTC(), nil), nil
+	}
+	if err != nil {
+		return guidance.Status{}, fmt.Errorf("query latest guidance evidence: %w", err)
+	}
+	last, err := time.Parse(time.RFC3339Nano, occurredAt)
+	if err != nil {
+		return guidance.Status{}, fmt.Errorf("parse latest guidance evidence: %w", err)
+	}
+	var active int
+	if err := database.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM guidance_decisions WHERE expires_at>?", formatGuidanceTime(now)).Scan(&active); err != nil {
+		return guidance.Status{}, fmt.Errorf("query active guidance status: %w", err)
+	}
+	return guidance.ResolveStatus(&last, client, active > 0, now.UTC(), nil), nil
+}
+
 func (database *DB) GuidanceControlLevel(ctx context.Context, projectID string) (guidance.ControlLevel, error) {
 	var level guidance.ControlLevel
 	err := database.sql.QueryRowContext(ctx,

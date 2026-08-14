@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { localAPI, type ClientConnection, type ControlLevel, type Conversation, type DashboardAPI, type GuidanceDecision, type LiveAnalysis, type PrivacySettings, type Snapshot, type Summary } from './api';
+import { localAPI, type ClientConnection, type ControlLevel, type Conversation, type DashboardAPI, type GuidanceDecision, type GuidanceStatus, type LiveAnalysis, type PrivacySettings, type Snapshot, type Summary } from './api';
 import { copy, initialLocale, persistLocale, routeOrder, type Locale, type Route } from './i18n';
 import { useLiveUpdates, type EventSourceFactory } from './live';
 import { ComparisonPage } from './pages/ComparisonPage';
@@ -25,6 +25,7 @@ export function App({ api = localAPI, liveFactory }: { api?: DashboardAPI; liveF
   const [snapshot, setSnapshot] = useState(emptySnapshot);
   const [analysis, setAnalysis] = useState(emptyAnalysis);
   const [guidance, setGuidance] = useState<GuidanceDecision[]>([]);
+  const [guidanceStatus, setGuidanceStatus] = useState<GuidanceStatus>({ state: 'unavailable', client: '', advice: false, enforcement: false, explanation: '' });
   const [controlLevel, setControlLevel] = useState<ControlLevel>('guide');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [connections, setConnections] = useState<ClientConnection[]>([]);
@@ -38,9 +39,9 @@ export function App({ api = localAPI, liveFactory }: { api?: DashboardAPI; liveF
     setError('');
     return Promise.all([api.loadSummary(), api.loadSnapshot(), api.loadConversations(), api.loadConnections(), api.loadLiveAnalysis(), api.loadPrivacy(), api.loadActiveGuidance()])
       .then(async ([nextSummary, nextSnapshot, nextConversations, nextConnections, nextAnalysis, nextPrivacy, nextGuidance]) => {
-        setSummary(nextSummary); setSnapshot(nextSnapshot); setConversations(nextConversations); setConnections(nextConnections); setAnalysis(nextAnalysis); setPrivacy(nextPrivacy); setGuidance(nextGuidance);
+        setSummary(nextSummary); setSnapshot(nextSnapshot); setConversations(nextConversations); setConnections(nextConnections); setAnalysis(nextAnalysis); setPrivacy(nextPrivacy); setGuidance(nextGuidance.items); setGuidanceStatus(nextGuidance.status);
         setSelectedID((current) => current && nextConversations.some((item) => item.id === current) ? current : (nextConversations[0]?.id ?? ''));
-        const projectId = nextGuidance[0]?.projectId || nextAnalysis.projectId || nextConversations[0]?.projectId || '';
+        const projectId = nextGuidance.items[0]?.projectId || nextAnalysis.projectId || nextConversations[0]?.projectId || '';
         if (projectId) setControlLevel((await api.loadGuidanceControlLevel(projectId)).controlLevel);
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : (locale === 'zh' ? '本地服务暂不可用' : 'Local service unavailable')))
@@ -59,7 +60,7 @@ export function App({ api = localAPI, liveFactory }: { api?: DashboardAPI; liveF
       setError(reason instanceof Error ? reason.message : (locale === 'zh' ? '介入级别更新失败' : 'Control level update failed'));
     });
   };
-  const pageProps: PageProps = { locale, api, summary, snapshot, conversations, selected, connections: mergedConnections, analysis, guidance, controlLevel, privacy, setPrivacy, setGuidanceControlLevel: updateGuidanceControlLevel, selectConversation: setSelectedID, refresh: () => { void refresh(); } };
+  const pageProps: PageProps = { locale, api, summary, snapshot, conversations, selected, connections: mergedConnections, analysis, guidance, guidanceStatus, controlLevel, privacy, setPrivacy, setGuidanceControlLevel: updateGuidanceControlLevel, selectConversation: setSelectedID, refresh: () => { void refresh(); } };
   const switchLocale = () => { const next = locale === 'zh' ? 'en' : 'zh'; setLocale(next); persistLocale(next); };
 
   return <main className="doctor-shell">

@@ -22,6 +22,7 @@ describe('TaskGuardian', () => {
     const update = vi.fn();
     render(<TaskGuardian
       locale="zh" guidance={[redirect]} controlLevel="guide"
+      status={{ state: 'active', client: 'codex', advice: true, enforcement: false, explanation: '', lastEvidenceAt: '2026-08-14T10:00:00Z' }}
       projectId="project-1" sessionLabel="session-42" clientLabel="Codex"
       onControlLevelChange={update}
     />);
@@ -39,10 +40,14 @@ describe('TaskGuardian', () => {
   it('shows an honest quiet state without a fake score', () => {
     render(<TaskGuardian
       locale="zh" guidance={[]} controlLevel="guide"
+      status={{ state: 'unavailable', client: '', advice: false, enforcement: false, explanation: '' }}
       projectId="project-1" sessionLabel="暂无活动任务" clientLabel="等待连接"
       onControlLevelChange={vi.fn()}
     />);
-    expect(screen.getByText('当前没有需要介入的问题')).toBeVisible();
+	expect(screen.getByText('尚未建立引导链路')).toBeVisible();
+	expect(screen.queryByText('正在推进')).not.toBeInTheDocument();
+	const labels = Array.from(screen.getByRole('combobox', { name: '介入级别' }).querySelectorAll('option')).map((item) => item.textContent);
+	expect(labels).toEqual(['观察', '引导', '守护', '自动守护']);
     expect(screen.queryByText('100')).not.toBeInTheDocument();
   });
 });

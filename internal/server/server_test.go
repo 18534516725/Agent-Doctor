@@ -20,15 +20,16 @@ import (
 )
 
 type memoryEventStore struct {
-	mu          sync.Mutex
-	events      []events.Event
-	summary     dashboard.Summary
-	snapshot    dashboard.Snapshot
-	requests    []conversations.Request
-	connections []conversations.ClientConnection
-	analysis    conversations.LiveAnalysis
-	guidance    []guidance.Decision
-	levels      map[string]guidance.ControlLevel
+	mu             sync.Mutex
+	events         []events.Event
+	summary        dashboard.Summary
+	snapshot       dashboard.Snapshot
+	requests       []conversations.Request
+	connections    []conversations.ClientConnection
+	analysis       conversations.LiveAnalysis
+	guidance       []guidance.Decision
+	levels         map[string]guidance.ControlLevel
+	guidanceStatus guidance.Status
 }
 
 func (store *memoryEventStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -98,6 +99,10 @@ func (store *memoryEventStore) ListActiveGuidance(_ context.Context, _ time.Time
 	return append([]guidance.Decision(nil), items...), nil
 }
 
+func (store *memoryEventStore) GuidanceStatus(_ context.Context, _ time.Time) (guidance.Status, error) {
+	return store.guidanceStatus, nil
+}
+
 func (store *memoryEventStore) GuidanceControlLevel(_ context.Context, projectID string) (guidance.ControlLevel, error) {
 	if level := store.levels[projectID]; level != "" {
 		return level, nil
@@ -118,7 +123,19 @@ func TestGuidanceAPIIsQuietWhenNoInterventionIsActive(t *testing.T) {
 	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/guidance/active", nil)
 	response := httptest.NewRecorder()
 	service.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != `{"items":[]}` {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"items":[]`) || !strings.Contains(response.Body.String(), `"state":"unavailable"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestGuidanceAPIIncludesHonestConnectionStatus(t *testing.T) {
+	last := time.Now().UTC().Add(-time.Minute)
+	store := &memoryEventStore{guidanceStatus: guidance.Status{State: guidance.StateObserving, Client: "codex", Advice: true, LastEvidenceAt: &last}}
+	service, _ := New(Config{Version: "0.1.0-dev", Store: store})
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/guidance/active", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"observing"`) || !strings.Contains(response.Body.String(), `"advice":true`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
