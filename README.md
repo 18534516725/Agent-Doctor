@@ -1,12 +1,17 @@
 # Agent Doctor
 
-**Local live conversations, evidence, context memory, and cost analytics for AI coding agents.**
+**A local reliability and guidance layer for AI coding agents.**
 
-Agent Doctor explains why a coding task became slow, expensive, repetitive, or
-unreliable. It combines complete model conversations captured through its
-loopback proxy, lifecycle events, Git state, validations, usage, cost evidence,
-and local history. Missing data stays **unavailable** instead of becoming a
-fabricated zero.
+Codex and Claude Code do the work. Agent Doctor watches the evidence, detects
+when a task is looping, losing context, or trying to finish without validation,
+and sends a bounded next-step instruction back to the running agent. It also
+explains why a task became slow, expensive, repetitive, or unreliable. Missing
+data stays **unavailable** instead of becoming a fabricated zero.
+
+The guidance engine is deterministic, runs locally, and does not call another
+model. Raw prompts, source files, commands, tool inputs, and tool results are not
+used by the guidance rules; supported hooks retain only bounded labels and
+non-reversible evidence fingerprints.
 
 ## 60-second local start
 
@@ -63,9 +68,26 @@ agent-doctor costs --json
 agent-doctor dashboard --no-open
 ```
 
-The result states evidence provenance and precision. A diagnosis is not a
-verdict: unsupported evidence, small cohorts, and absent billing records remain
-visible limitations.
+The first dashboard panel is the Task Guardian: it shows whether work is on
+track, needs redirection, is waiting for validation, or has been blocked by a
+capable hook. The result states evidence provenance and precision. A diagnosis
+is not a verdict: unsupported evidence and absent billing records remain visible
+limitations.
+
+## Runtime guidance boundary
+
+- **Claude Code:** official hooks can return guidance and, in `guard` or
+  `autopilot`, enforce supported `PreToolUse` or unverified `Stop` decisions.
+- **Codex:** MCP and Skill assets provide evidence-backed guidance at task
+  checkpoints. The client can ignore MCP/Skill text, so this is not a
+  deterministic block.
+- **Other clients:** capability depends on the public interface listed in the
+  compatibility matrix. Agent Doctor never claims enforcement where only
+  observation or MCP advice exists.
+
+Project control levels are `observe` (record only), `guide` (advise), `guard`
+(enforce supported high-confidence rules), and `autopilot` (strongest supported
+local controls). The default is `guide`.
 
 ## Public commands
 
@@ -120,10 +142,10 @@ cost limit. Read the [privacy model](docs/privacy.md).
 
 ```text
 documented client interface → sanitizer → local event contract → SQLite
+           ↑                                         ↓
+   Hook / MCP / Skill ← deterministic guidance ← evidence fingerprints
                                                      ↓
-MCP read-only tools ← evidence engine ← safe aggregates → loopback dashboard
-                                                     ↓
-                              consent-bound detached-worktree replay
+                         safe aggregates → loopback Task Guardian
 ```
 
 ## Limitations

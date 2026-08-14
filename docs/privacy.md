@@ -24,6 +24,21 @@ Events pass through a bounded JSON contract and privacy filter before SQLite.
 Dashboard snapshot responses select aggregates and safe labels only. Session
 evidence returns event ID, time, type, provenance, and precision—not payloads.
 
+## Runtime guidance data
+
+Runtime guidance does not send task content to another model. Claude Code tool
+input and result JSON are canonicalized in memory and immediately reduced to
+SHA-256 fingerprints; the raw JSON is not copied into lifecycle events.
+Deterministic rules operate on event IDs, timestamps, bounded tool labels,
+progress/validation facts, and those non-reversible fingerprints. Persisted
+guidance contains the finding, instruction, source event IDs, control metadata,
+and expiry—not prompts, source code, commands, paths, tool inputs, or tool
+results.
+
+MCP/Skill clients receive sanitized guidance only. Claude Code Hook responses
+are token-bounded, credential-filtered, path-filtered, and fail open: any local
+error or timeout produces no stdout control response and Claude continues.
+
 ## Controls
 
 The Privacy dashboard controls message/file-content flags and retention period.
