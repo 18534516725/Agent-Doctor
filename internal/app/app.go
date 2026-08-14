@@ -125,6 +125,16 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
+	home, homeErr := agentDoctorHome()
+	if homeErr != nil {
+		fmt.Fprintln(stderr, "agent-doctor: 无法检查本机集成；仪表盘仍会继续启动")
+	} else if result, integrationErr := prepareManagedIntegrations(home); integrationErr != nil {
+		fmt.Fprintln(stderr, "agent-doctor: 自动集成检查未完成；仪表盘仍会继续启动，可运行 setup --json 查看详情")
+	} else if result.Applied > 0 {
+		fmt.Fprintln(stdout, "Agent Doctor 集成已就绪；已打开的客户端需要重新启动后生效。")
+	} else {
+		fmt.Fprintln(stdout, "Agent Doctor 集成检查完成。")
+	}
 	database, err := openLocalStore()
 	if err != nil {
 		fmt.Fprintln(stderr, "agent-doctor: local database unavailable")
@@ -184,7 +194,15 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 	if proxyURL != "" {
 		fmt.Fprintln(stdout, "Live capture proxy:", proxyURL)
 	}
-	fmt.Fprintln(stdout, "Open this local URL in your browser. Press Ctrl+C to stop.")
+	if shouldOpenBrowser(args) {
+		if err := openBrowserURL(runtime.GOOS, url); err != nil {
+			fmt.Fprintln(stderr, "agent-doctor: 浏览器未能自动打开；请手动打开上面的本地地址")
+		} else {
+			fmt.Fprintln(stdout, "Dashboard opened in your browser. Press Ctrl+C to stop.")
+		}
+	} else {
+		fmt.Fprintln(stdout, "Open this local URL in your browser. Press Ctrl+C to stop.")
+	}
 	interrupt, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	serveErrors := make(chan error, 1)
@@ -218,6 +236,62 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+}
+
+func prepareManagedIntegrations(home string) (installer.ApplyResult, error) {
+	plan, err := installer.BuildCodexMCPPlan(home)
+	if err != nil {
+		return installer.ApplyResult{}, err
+	}
+	return installer.Apply(plan)
+}
+
+func shouldOpenBrowser(arguments []string) bool {
+	return !hasFlag(arguments, "--no-open") && !hasFlag(arguments, "--once")
+}
+
+func openBrowserURL(targetOS, url string) error {
+	name, arguments, err := browserCommand(targetOS, url)
+	if err != nil {
+		return err
+	}
+	command := exec.Command(name, arguments...)
+	command.Env = browserEnvironment(os.Environ())
+	if err := command.Start(); err != nil {
+		return err
+	}
+	return command.Process.Release()
+}
+
+func browserCommand(targetOS, url string) (string, []string, error) {
+	switch targetOS {
+	case "darwin":
+		return "open", []string{url}, nil
+	case "linux":
+		return "xdg-open", []string{url}, nil
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported browser platform %q", targetOS)
+	}
+}
+
+func browserEnvironment(environment []string) []string {
+	result := make([]string, 0, len(environment))
+	for _, item := range environment {
+		key := strings.ToUpper(strings.SplitN(item, "=", 2)[0])
+		sensitive := false
+		for _, marker := range []string{"API_KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "COOKIE", "CREDENTIAL"} {
+			if strings.Contains(key, marker) {
+				sensitive = true
+				break
+			}
+		}
+		if !sensitive {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func defaultString(value, fallback string) string {

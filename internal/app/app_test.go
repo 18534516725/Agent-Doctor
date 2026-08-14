@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +34,7 @@ func TestUnknownCommandPrintsUsageToStderr(t *testing.T) {
 
 func TestStartOncePrintsLocalDashboardURLWithoutOpeningABrowser(t *testing.T) {
 	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
+	t.Setenv("AGENT_DOCTOR_HOME", t.TempDir())
 	var out bytes.Buffer
 	code := Run([]string{"start", "--once"}, &out, io.Discard)
 	if code != 0 || !strings.Contains(out.String(), "http://127.0.0.1:") || strings.Contains(strings.ToLower(out.String()), "browser opened") {
@@ -41,11 +44,112 @@ func TestStartOncePrintsLocalDashboardURLWithoutOpeningABrowser(t *testing.T) {
 
 func TestStartOnceAllocatesCaptureProxyWhenUpstreamIsConfigured(t *testing.T) {
 	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
+	t.Setenv("AGENT_DOCTOR_HOME", t.TempDir())
 	t.Setenv("AGENT_DOCTOR_UPSTREAM_URL", "https://example.test")
 	var out bytes.Buffer
 	code := Run([]string{"start", "--once"}, &out, io.Discard)
 	if code != 0 || !strings.Contains(out.String(), "proxy: http://127.0.0.1:") {
 		t.Fatalf("code=%d output=%q", code, out.String())
+	}
+}
+
+func TestPrepareManagedIntegrationsInstallsCodexBlockIdempotently(t *testing.T) {
+	home := t.TempDir()
+	config := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte("model = \"existing\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := prepareManagedIntegrations(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := prepareManagedIntegrations(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Applied != 1 || second.Applied != 0 || second.Skipped != 1 {
+		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+	text := string(contents)
+	if strings.Count(text, "# >>> agent-doctor:codex >>>") != 1 || !strings.Contains(text, "model = \"existing\"") {
+		t.Fatalf("unexpected config: %s", text)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, `command = "`+strings.ReplaceAll(executable, `\`, `\\`)+`"`) {
+		t.Fatalf("managed MCP command does not use current executable %q: %s", executable, text)
+	}
+}
+
+func TestBrowserCommandUsesArgumentVectorsWithoutShell(t *testing.T) {
+	url := "http://127.0.0.1:51993/?value=$(must-not-run)"
+	tests := []struct {
+		goos string
+		name string
+		args []string
+	}{
+		{goos: "darwin", name: "open", args: []string{url}},
+		{goos: "linux", name: "xdg-open", args: []string{url}},
+		{goos: "windows", name: "rundll32", args: []string{"url.dll,FileProtocolHandler", url}},
+	}
+	for _, test := range tests {
+		name, args, err := browserCommand(test.goos, url)
+		if err != nil {
+			t.Fatalf("%s: %v", test.goos, err)
+		}
+		if name != test.name || strings.Join(args, "\x00") != strings.Join(test.args, "\x00") {
+			t.Fatalf("%s command=%q args=%q", test.goos, name, args)
+		}
+	}
+}
+
+func TestBrowserCommandRejectsUnsupportedPlatforms(t *testing.T) {
+	if _, _, err := browserCommand("plan9", "http://127.0.0.1:51993/"); err == nil {
+		t.Fatal("unsupported platform was accepted")
+	}
+}
+
+func TestStartBrowserOptOutContract(t *testing.T) {
+	if !shouldOpenBrowser(nil) {
+		t.Fatal("plain start should open the dashboard")
+	}
+	if shouldOpenBrowser([]string{"--no-open"}) {
+		t.Fatal("--no-open should disable browser launch")
+	}
+	if shouldOpenBrowser([]string{"--once"}) {
+		t.Fatal("--once should never launch a browser")
+	}
+}
+
+func TestBrowserEnvironmentDoesNotForwardCredentials(t *testing.T) {
+	environment := browserEnvironment([]string{
+		"PATH=/usr/bin",
+		"HOME=/tmp/home",
+		"DISPLAY=:0",
+		"OPENAI_API_KEY=must-not-forward",
+		"GH_TOKEN=must-not-forward",
+		"SESSION_SECRET=must-not-forward",
+	})
+	joined := strings.Join(environment, "\n")
+	for _, allowed := range []string{"PATH=/usr/bin", "HOME=/tmp/home", "DISPLAY=:0"} {
+		if !strings.Contains(joined, allowed) {
+			t.Fatalf("missing safe environment %q in %q", allowed, joined)
+		}
+	}
+	for _, forbidden := range []string{"must-not-forward", "OPENAI_API_KEY", "GH_TOKEN", "SESSION_SECRET"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("browser environment leaked %q: %q", forbidden, joined)
+		}
 	}
 }
 

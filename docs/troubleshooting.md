@@ -5,7 +5,7 @@
 The listener uses a random port and stops with the process. Run:
 
 ```bash
-agent-doctor start --no-open
+agent-doctor start
 ```
 
 Open the newly printed URL. Do not bookmark the old session URL.

@@ -17,13 +17,21 @@ go build -trimpath -o ./bin/agent-doctor ./cmd/agent-doctor
 ./bin/agent-doctor start --once --no-open
 ```
 
-`start --once --no-open` validates database migration, dashboard embedding, and
-loopback binding, then exits. `start --no-open` keeps the service running and
-prints the URL; it does not open a browser automatically.
+`start --once --no-open` validates managed integration setup, database migration,
+dashboard embedding, and loopback binding, then exits. For normal use, run only:
+
+```bash
+agent-doctor start
+```
+
+This checks the Agent Doctor-owned Codex integration, refreshes detected clients,
+starts the local services, and opens the dashboard. `start --no-open` performs
+the same checks but only prints the URL.
 
 ## Configure Codex safely
 
-Always preview first:
+Ordinary startup performs this idempotent managed setup automatically. To inspect
+the exact change without applying it, use:
 
 ```bash
 agent-doctor setup --json

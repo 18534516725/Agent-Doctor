@@ -20,8 +20,7 @@ Agent Doctor 是本地优先的 AI 编程任务诊断工具：完整模型对话
 ```bash
 go build -o ./bin/agent-doctor ./cmd/agent-doctor
 ./bin/agent-doctor version
-./bin/agent-doctor setup --json
-./bin/agent-doctor start --no-open
+./bin/agent-doctor start
 ```
 
 保持仪表盘运行后，在另一个终端通过安全包装器启动正在使用的客户端：

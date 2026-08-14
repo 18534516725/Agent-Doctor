@@ -16,19 +16,21 @@ Until the first signed release is published, build from this repository:
 pnpm install --frozen-lockfile
 ./scripts/embed-dashboard.sh
 go build -o ./bin/agent-doctor ./cmd/agent-doctor
-./bin/agent-doctor setup --yes --json
-./bin/agent-doctor start --no-open
+./bin/agent-doctor start
 ```
 
-Open the printed `http://127.0.0.1:<random-port>/` URL yourself. Agent Doctor
-never binds a public interface. The dashboard includes Overview, Task evidence,
-Costs, Memory, Comparison, Trends, Integrations, and Privacy.
+`start` checks and idempotently prepares the Agent Doctor-owned Codex integration,
+refreshes detected clients, starts the loopback services, and opens the dashboard
+in the default browser. Use `start --no-open` when you want to copy the printed
+URL yourself. Agent Doctor never binds a public interface. The dashboard includes
+Overview, Task evidence, Costs, Memory, Comparison, Trends, Integrations, and
+Privacy.
 
 The simplest live capture path reuses the API base URL already configured in
 your terminal and injects the local proxy only into the child process:
 
 ```bash
-agent-doctor start --no-open                    # keep the dashboard running
+agent-doctor start                              # check integrations and open dashboard
 agent-doctor run -- codex                       # start Codex with live capture
 # or: agent-doctor run -- claude
 ```
@@ -71,8 +73,9 @@ visible limitations.
 | --- | --- |
 | `agent-doctor setup --json` | Preview detected clients and exact owned changes |
 | `agent-doctor setup --yes --json` | Apply the reviewed Codex MCP block |
-| `agent-doctor start --no-open` | Start the authenticated loopback dashboard |
-| `agent-doctor dashboard --no-open` | Alias for the visual workspace |
+| `agent-doctor start` | Check managed integrations, start loopback services, and open the dashboard |
+| `agent-doctor start --no-open` | Same startup flow without opening a browser |
+| `agent-doctor dashboard` | Alias for the visual workspace |
 | `agent-doctor diagnose --json` | Summarize available task evidence |
 | `agent-doctor compare --json` | Report matched-cohort readiness/results |
 | `agent-doctor context --json` | Report bounded memory state without content |
