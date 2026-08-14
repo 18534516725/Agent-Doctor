@@ -2,6 +2,8 @@ package privacy
 
 import "regexp"
 
+const sensitiveCredentialKey = `(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|secret|token|authorization|cookie|set-cookie|aws[_-]?access[_-]?key[_-]?id|aws[_-]?secret[_-]?access[_-]?key|(?:[a-z0-9]+[_-])+(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|secret|token))`
+
 type replacementPattern struct {
 	pattern     *regexp.Regexp
 	replacement string
@@ -18,7 +20,7 @@ var boundedSecretPatterns = []replacementPattern{
 	},
 	{
 		pattern: regexp.MustCompile(
-			`(?i)\b(password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|secret|token)\s*([:=])\s*("[^"]*"|'[^']*'|[^\s,;&]+)`,
+			`(?i)\b(` + sensitiveCredentialKey + `)\s*([:=])\s*("[^"]*"|'[^']*'|[^\s,;&]+)`,
 		),
 		replacement: `${1}${2}[REDACTED:SECRET]`,
 	},
@@ -36,4 +38,4 @@ var privateKeyPattern = regexp.MustCompile(`(?s)-----BEGIN(?: [A-Z0-9]+)? PRIVAT
 
 var highEntropyCandidatePattern = regexp.MustCompile(`\b[A-Za-z0-9_+/=-]{32,512}\b`)
 
-var sensitiveJSONKeyPattern = regexp.MustCompile(`(?i)^(?:password|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|secret|token|authorization|cookie|set-cookie)$`)
+var sensitiveJSONKeyPattern = regexp.MustCompile(`(?i)^` + sensitiveCredentialKey + `$`)

@@ -70,6 +70,25 @@ func TestFilterJSONRedactsSensitiveKeysAndNestedText(t *testing.T) {
 	}
 }
 
+func TestFilterRedactsPrefixedEnvironmentCredentials(t *testing.T) {
+	for _, input := range []string{
+		"DB_PASSWORD=hunter2",
+		"AWS_ACCESS_KEY_ID=AKIATESTVALUE",
+		"AWS_SECRET_ACCESS_KEY=short-secret",
+	} {
+		if got := FilterText(input); got == input || strings.Contains(got, strings.SplitN(input, "=", 2)[1]) {
+			t.Fatalf("prefixed credential survived: %q => %q", input, got)
+		}
+	}
+	filtered, err := FilterJSON([]byte(`{"DB_PASSWORD":"hunter2","AWS_ACCESS_KEY_ID":"AKIATESTVALUE"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(filtered), "hunter2") || strings.Contains(string(filtered), "AKIATESTVALUE") {
+		t.Fatalf("prefixed JSON credential survived: %s", filtered)
+	}
+}
+
 func FuzzFilterNeverReturnsBearerValue(f *testing.F) {
 	for _, value := range []string{"abc123", "synthetic-token-value", "aB9_7zY3-kLmN2"} {
 		f.Add(value)

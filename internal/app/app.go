@@ -19,6 +19,7 @@ import (
 
 	"github.com/18534516725/Agent-Doctor/internal/adapters/claudecode"
 	"github.com/18534516725/Agent-Doctor/internal/adapters/cline"
+	codexadapter "github.com/18534516725/Agent-Doctor/internal/adapters/codex"
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/installer"
@@ -223,6 +224,37 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- service.Serve(listener) }()
+	if sessionsRoot, rootErr := codexSessionsRoot(); rootErr == nil {
+		watcher := codexadapter.NewSessionWatcher(codexadapter.SessionWatcherConfig{
+			Root: sessionsRoot, Store: database, Log: stdout, OnSaved: service.PublishConversation,
+			CapturePolicy: func(ctx context.Context) (bool, bool) {
+				if capturePaused() {
+					return false, false
+				}
+				settings, settingsErr := database.PrivacySettings(ctx)
+				if settingsErr != nil {
+					return false, false
+				}
+				return true, settings.CapturePrompts
+			},
+		})
+		watcherDone := make(chan struct{})
+		go func() {
+			defer close(watcherDone)
+			if watchErr := watcher.Run(interrupt); watchErr != nil {
+				fmt.Fprintln(stderr, "agent-doctor: Codex 本地会话监听未能启动")
+			}
+		}()
+		defer func() {
+			cancel()
+			select {
+			case <-watcherDone:
+			case <-time.After(2 * time.Second):
+				fmt.Fprintln(stderr, "agent-doctor: Codex 本地会话监听正在停止")
+			}
+		}()
+		fmt.Fprintln(stdout, "Codex 本地会话监听已启动，无需重启 Codex。")
+	}
 	if proxyHTTPServer != nil {
 		go func() {
 			if serveErr := proxyHTTPServer.Serve(proxyListener); serveErr != nil && serveErr != http.ErrServerClosed {
@@ -252,6 +284,17 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+}
+
+func codexSessionsRoot() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("CODEX_HOME")); configured != "" {
+		return filepath.Join(configured, "sessions"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex", "sessions"), nil
 }
 
 func prepareManagedIntegrations(home string) (installer.ApplyResult, error) {
@@ -332,7 +375,7 @@ func recordDetectedClients(database *storage.DB) {
 		if client.Detected {
 			state, detail = "detected", "仅检测到客户端，尚未建立实时连接"
 			if client.ID == "codex" {
-				detail = "集成配置已就绪；重新启动 Codex 后建立连接"
+				detail = "已发现 Codex；Agent Doctor 启动后会自动监听本地会话，无需重启 Codex"
 			}
 		}
 		_ = database.UpsertClientConnection(context.Background(), conversations.ClientConnection{
