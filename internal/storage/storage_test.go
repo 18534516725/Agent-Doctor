@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 )
 
@@ -36,8 +37,8 @@ func TestOpenMigratesAndPersistsFilteredEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
-	if got := database.SchemaVersion(); got != 3 {
-		t.Fatalf("schema=%d want=3", got)
+	if got := database.SchemaVersion(); got != 4 {
+		t.Fatalf("schema=%d want=4", got)
 	}
 	if database.ReadOnly() {
 		t.Fatal("fresh database must be writable")
@@ -135,7 +136,7 @@ func TestFailedMigrationCreatesBackupAndEntersReadOnlyRecovery(t *testing.T) {
 		return time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	}
 	recovered, err := openWithMigrations(path, append(defaultMigrations(), migration{
-		version: 4,
+		version: 5,
 		name:    "broken",
 		sql:     "CREATE TABLE broken( INVALID SQL",
 	}), fixedNow)
@@ -171,6 +172,7 @@ func TestInitialSchemaContainsEveryCoreTable(t *testing.T) {
 		"git_snapshots", "validations", "usage_records", "cost_records", "quota_snapshots",
 		"memories", "context_capsules", "diagnoses", "comparisons", "replays", "consents",
 		"price_catalog_versions", "exchange_rate_versions",
+		"model_requests", "conversation_messages", "client_connections", "analysis_snapshots",
 	}
 	for _, table := range want {
 		var count int
@@ -180,5 +182,101 @@ func TestInitialSchemaContainsEveryCoreTable(t *testing.T) {
 		if err != nil || count != 1 {
 			t.Fatalf("table %s missing: count=%d err=%v", table, count, err)
 		}
+	}
+}
+
+func TestConversationRoundTripPreservesCompleteMessagesAndUsage(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	started := time.Date(2026, 8, 14, 1, 2, 3, 0, time.UTC)
+	completed := started.Add(1450 * time.Millisecond)
+	input, output, cached, reasoning, cost := int64(321), int64(89), int64(120), int64(14), int64(2870)
+	record := conversations.Request{
+		ID: "request-1", SessionID: "session-live-1", ProjectID: "project-live-1",
+		Client:   events.ClientRef{Name: "codex", Version: "1.2.3"},
+		Model:    events.ModelRef{DisplayName: "gpt-example"},
+		Protocol: "openai", Method: "POST", Path: "/v1/responses", StatusCode: 200,
+		StartedAt: started, CompletedAt: &completed, FirstByteMS: 180, DurationMS: 1450,
+		Usage: conversations.Usage{InputTokens: &input, OutputTokens: &output, CachedTokens: &cached, ReasoningTokens: &reasoning, Precision: "exact", Provenance: "provider-response"},
+		Cost:  conversations.Cost{AmountMicros: &cost, Currency: "USD", Precision: "exact", Provenance: "local-catalog"},
+		Messages: []conversations.Message{
+			{ID: "message-1", Sequence: 0, Role: "system", Content: "You are precise.", CreatedAt: started},
+			{ID: "message-2", Sequence: 1, Role: "user", Content: "完整保留这段对话。", CreatedAt: started.Add(time.Millisecond)},
+			{ID: "message-3", Sequence: 2, Role: "assistant", Content: "已经完整保存。", ToolName: "shell", ToolPayloadJSON: `{"command":"go test ./..."}`, CreatedAt: completed},
+		},
+	}
+	if err := database.SaveConversationRequest(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := database.GetConversationRequest(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != record.ID || got.Protocol != "openai" || got.DurationMS != 1450 || got.FirstByteMS != 180 {
+		t.Fatalf("request metadata mismatch: %+v", got)
+	}
+	if got.Usage.InputTokens == nil || *got.Usage.InputTokens != input || got.Cost.AmountMicros == nil || *got.Cost.AmountMicros != cost {
+		t.Fatalf("usage/cost mismatch: usage=%+v cost=%+v", got.Usage, got.Cost)
+	}
+	if len(got.Messages) != 3 || got.Messages[1].Content != "完整保留这段对话。" || got.Messages[2].ToolPayloadJSON != `{"command":"go test ./..."}` {
+		t.Fatalf("messages not preserved in order: %+v", got.Messages)
+	}
+}
+
+func TestConversationSchemaHasNoTransportCredentialColumns(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	for _, table := range []string{"model_requests", "conversation_messages"} {
+		rows, err := database.sql.QueryContext(context.Background(), "PRAGMA table_info("+table+")")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				t.Fatal(err)
+			}
+			lower := strings.ToLower(name)
+			if strings.Contains(lower, "authorization") || strings.Contains(lower, "cookie") || strings.Contains(lower, "api_key") || strings.Contains(lower, "header") {
+				t.Fatalf("transport credential column %q must not exist in %s", name, table)
+			}
+		}
+		_ = rows.Close()
+	}
+}
+
+func TestClientConnectionUpsertAndList(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	now := time.Date(2026, 8, 14, 2, 0, 0, 0, time.UTC)
+	connection := conversations.ClientConnection{Key: "codex", DisplayName: "Codex", Detected: true, State: "connected", Capability: "proxy", Detail: "loopback proxy", LastHeartbeatAt: &now, UpdatedAt: now}
+	if err := database.UpsertClientConnection(context.Background(), connection); err != nil {
+		t.Fatal(err)
+	}
+	connection.State = "active"
+	connection.Detail = "capturing"
+	if err := database.UpsertClientConnection(context.Background(), connection); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.ListClientConnections(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].State != "active" || got[0].Detail != "capturing" || !got[0].Detected {
+		t.Fatalf("unexpected connections: %+v", got)
 	}
 }
