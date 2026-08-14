@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,15 +13,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 )
 
 type memoryEventStore struct {
-	mu       sync.Mutex
-	events   []events.Event
-	summary  dashboard.Summary
-	snapshot dashboard.Snapshot
+	mu          sync.Mutex
+	events      []events.Event
+	summary     dashboard.Summary
+	snapshot    dashboard.Snapshot
+	requests    []conversations.Request
+	connections []conversations.ClientConnection
+	analysis    conversations.LiveAnalysis
 }
 
 func (store *memoryEventStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -43,6 +48,36 @@ func (store *memoryEventStore) ListSessionEvents(_ context.Context, sessionID st
 }
 
 func (store *memoryEventStore) ReadOnly() bool { return false }
+
+func (store *memoryEventStore) ListConversationRequests(_ context.Context, limit int, _ string) ([]conversations.Request, error) {
+	if limit <= 0 || limit > len(store.requests) {
+		limit = len(store.requests)
+	}
+	return append([]conversations.Request(nil), store.requests[:limit]...), nil
+}
+func (store *memoryEventStore) GetConversationRequest(_ context.Context, id string) (conversations.Request, error) {
+	for _, item := range store.requests {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return conversations.Request{}, errors.New("not found")
+}
+func (store *memoryEventStore) ListClientConnections(context.Context) ([]conversations.ClientConnection, error) {
+	return store.connections, nil
+}
+func (store *memoryEventStore) LiveConversationAnalysis(context.Context) (conversations.LiveAnalysis, error) {
+	return store.analysis, nil
+}
+func (store *memoryEventStore) DeleteConversationSession(_ context.Context, sessionID string) error {
+	for index, item := range store.requests {
+		if item.SessionID == sessionID {
+			store.requests = append(store.requests[:index], store.requests[index+1:]...)
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
 
 func (store *memoryEventStore) DashboardSummary(context.Context) (dashboard.Summary, error) {
 	return store.summary, nil
@@ -218,6 +253,49 @@ func TestSessionEvidenceNeverReturnsEventPayload(t *testing.T) {
 	}
 	if !strings.Contains(body, `"eventType":"session.started"`) || !strings.Contains(body, `"precision":"exact"`) {
 		t.Fatalf("safe event metadata missing: %s", body)
+	}
+}
+
+func TestConversationAPIExposesCompleteLocalMessagesAndAnalysis(t *testing.T) {
+	input := int64(42)
+	store := &memoryEventStore{
+		requests:    []conversations.Request{{ID: "request-1", SessionID: "session-1", Messages: []conversations.Message{{Role: "user", Content: "完整用户问题"}, {Role: "assistant", Content: "完整模型回复"}}, Usage: conversations.Usage{InputTokens: &input, Precision: "exact"}}},
+		connections: []conversations.ClientConnection{{Key: "codex", DisplayName: "Codex", Detected: true, State: "active"}},
+		analysis:    conversations.LiveAnalysis{Requests: 1, InputTokens: 42},
+	}
+	service, err := New(Config{Version: "0.1.0-dev", Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"/api/v1/conversations", "/api/v1/conversations/request-1", "/api/v1/connections", "/api/v1/analysis/live"} {
+		request := authenticatedRequest(t, service, http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		service.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", target, response.Code, response.Body.String())
+		}
+	}
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/conversations/request-1", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if !strings.Contains(response.Body.String(), "完整用户问题") || !strings.Contains(response.Body.String(), "完整模型回复") {
+		t.Fatalf("full messages missing: %s", response.Body.String())
+	}
+}
+
+func TestDeleteConversationSessionRequiresAuthAndDeletesOnlyTarget(t *testing.T) {
+	store := &memoryEventStore{requests: []conversations.Request{{ID: "r1", SessionID: "s1"}, {ID: "r2", SessionID: "s2"}}}
+	service, _ := New(Config{Version: "0.1.0-dev", Store: store})
+	unauthorized := httptest.NewRecorder()
+	service.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodDelete, "/api/v1/sessions/s1", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorized.Code)
+	}
+	request := authenticatedRequest(t, service, http.MethodDelete, "/api/v1/sessions/s1", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || len(store.requests) != 1 || store.requests[0].SessionID != "s2" {
+		t.Fatalf("delete result status=%d records=%+v", response.Code, store.requests)
 	}
 }
 

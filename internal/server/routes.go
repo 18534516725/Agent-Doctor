@@ -5,12 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/realtime"
 )
 
 const maxEventRequestBytes = events.MaxPayloadBytes * 2
@@ -19,6 +24,14 @@ type EventStore interface {
 	InsertEvent(context.Context, events.Event) error
 	ListSessionEvents(context.Context, string) ([]events.Event, error)
 	ReadOnly() bool
+}
+
+type ConversationStore interface {
+	ListConversationRequests(context.Context, int, string) ([]conversations.Request, error)
+	GetConversationRequest(context.Context, string) (conversations.Request, error)
+	ListClientConnections(context.Context) ([]conversations.ClientConnection, error)
+	LiveConversationAnalysis(context.Context) (conversations.LiveAnalysis, error)
+	DeleteConversationSession(context.Context, string) error
 }
 
 type privacySettings struct {
@@ -41,10 +54,136 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/events", server.ingestEvent)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", server.dashboardSummary)
 	mux.HandleFunc("GET /api/v1/dashboard/snapshot", server.dashboardSnapshot)
+	mux.HandleFunc("GET /api/v1/live", server.liveEvents)
+	mux.HandleFunc("GET /api/v1/conversations", server.conversationList)
+	mux.HandleFunc("GET /api/v1/conversations/{id}", server.conversationDetails)
+	mux.HandleFunc("GET /api/v1/connections", server.connectionList)
+	mux.HandleFunc("GET /api/v1/analysis/live", server.liveAnalysis)
+	mux.HandleFunc("DELETE /api/v1/sessions/{id}", server.deleteConversationSession)
 	mux.HandleFunc("GET /api/v1/sessions/", server.sessionDetails)
 	mux.HandleFunc("GET /api/v1/settings/privacy", settings.getPrivacy)
 	mux.HandleFunc("PUT /api/v1/settings/privacy", settings.putPrivacy)
 	return securityHeaders(mux)
+}
+
+func (server *Server) conversationStore(response http.ResponseWriter) (ConversationStore, bool) {
+	store, ok := server.store.(ConversationStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "live conversation storage unavailable")
+	}
+	return store, ok
+}
+
+func (server *Server) conversationList(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.conversationStore(response)
+	if !ok {
+		return
+	}
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	items, err := store.ListConversationRequests(request.Context(), limit, request.URL.Query().Get("before"))
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "conversation storage unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"items": items})
+}
+
+func (server *Server) conversationDetails(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.conversationStore(response)
+	if !ok {
+		return
+	}
+	id := request.PathValue("id")
+	if id == "" || len(id) > 128 {
+		writeError(response, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	item, err := store.GetConversationRequest(request.Context(), id)
+	if err != nil {
+		writeError(response, http.StatusNotFound, "conversation not found")
+		return
+	}
+	writeJSON(response, http.StatusOK, item)
+}
+
+func (server *Server) connectionList(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.conversationStore(response)
+	if !ok {
+		return
+	}
+	items, err := store.ListClientConnections(request.Context())
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "connection storage unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"items": items})
+}
+
+func (server *Server) liveAnalysis(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.conversationStore(response)
+	if !ok {
+		return
+	}
+	analysis, err := store.LiveConversationAnalysis(request.Context())
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "analysis storage unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, analysis)
+}
+
+func (server *Server) deleteConversationSession(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.conversationStore(response)
+	if !ok {
+		return
+	}
+	id := request.PathValue("id")
+	if id == "" || len(id) > 128 {
+		writeError(response, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	if err := store.DeleteConversationSession(request.Context(), id); err != nil {
+		writeError(response, http.StatusNotFound, "session not found")
+		return
+	}
+	server.hub.Publish(realtime.Event{Kind: "conversation.deleted", SessionID: id})
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (server *Server) liveEvents(response http.ResponseWriter, request *http.Request) {
+	flusher, ok := response.(http.Flusher)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "streaming unavailable")
+		return
+	}
+	afterID, _ := strconv.ParseUint(request.Header.Get("Last-Event-ID"), 10, 64)
+	if queryID, err := strconv.ParseUint(request.URL.Query().Get("lastEventId"), 10, 64); err == nil && queryID > afterID {
+		afterID = queryID
+	}
+	events, cancel := server.hub.Subscribe(afterID, 32)
+	defer cancel()
+	response.Header().Set("Content-Type", "text/event-stream")
+	response.Header().Set("X-Accel-Buffering", "no")
+	response.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-request.Context().Done():
+			return
+		case event, open := <-events:
+			if !open {
+				return
+			}
+			payload, _ := json.Marshal(event)
+			_, _ = fmt.Fprintf(response, "id: %d\nevent: %s\ndata: %s\n\n", event.ID, event.Kind, payload)
+			flusher.Flush()
+		case <-heartbeat.C:
+			_, _ = io.WriteString(response, ": heartbeat\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func (server *Server) health(response http.ResponseWriter, _ *http.Request) {

@@ -33,6 +33,7 @@ type Config struct {
 	ProjectID         string
 	CaptureLimitBytes int
 	HTTPClient        *http.Client
+	OnCommitted       func(sessionID string)
 }
 
 type Server struct {
@@ -41,6 +42,7 @@ type Server struct {
 	client                               *http.Client
 	clientName, clientVersion, projectID string
 	captureLimit                         int
+	onCommitted                          func(string)
 }
 
 func New(config Config) (http.Handler, error) {
@@ -73,7 +75,7 @@ func New(config Config) (http.Handler, error) {
 	if projectID == "" {
 		projectID = "local-project"
 	}
-	server := &Server{upstream: upstream, store: config.Store, client: httpClient, clientName: clientName, clientVersion: config.ClientVersion, projectID: projectID, captureLimit: limit}
+	server := &Server{upstream: upstream, store: config.Store, client: httpClient, clientName: clientName, clientVersion: config.ClientVersion, projectID: projectID, captureLimit: limit, onCommitted: config.OnCommitted}
 	return http.HandlerFunc(server.serveHTTP), nil
 }
 
@@ -207,7 +209,9 @@ func (server *Server) persist(ctx context.Context, requestPart, responsePart con
 		Method: method, Path: path, StatusCode: status, StartedAt: started, CompletedAt: &completed,
 		FirstByteMS: firstByte.Sub(started).Milliseconds(), DurationMS: completed.Sub(started).Milliseconds(),
 		Usage: responsePart.Usage, Cost: cost, Messages: messages}
-	_ = server.store.SaveConversationRequest(context.WithoutCancel(ctx), record)
+	if err := server.store.SaveConversationRequest(context.WithoutCancel(ctx), record); err == nil && server.onCommitted != nil {
+		server.onCommitted(sessionID)
+	}
 }
 
 func detectProtocol(path string) string {

@@ -8,11 +8,14 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/18534516725/Agent-Doctor/internal/realtime"
 )
 
 type Config struct {
 	Version string
 	Store   EventStore
+	Hub     *realtime.Hub
 }
 
 type Server struct {
@@ -21,6 +24,7 @@ type Server struct {
 	token      string
 	handler    http.Handler
 	httpServer *http.Server
+	hub        *realtime.Hub
 }
 
 func New(config Config) (*Server, error) {
@@ -34,13 +38,17 @@ func New(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{version: config.Version, store: config.Store, token: token}
+	hub := config.Hub
+	if hub == nil {
+		hub = realtime.NewHub(256)
+	}
+	server := &Server{version: config.Version, store: config.Store, token: token, hub: hub}
 	server.handler = server.enforceLocalBoundary(server.routes())
 	server.httpServer = &http.Server{
 		Handler:           server.handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      0, // SSE remains open until the local dashboard disconnects.
 		IdleTimeout:       60 * time.Second,
 	}
 	return server, nil
@@ -48,6 +56,9 @@ func New(config Config) (*Server, error) {
 
 func (server *Server) Handler() http.Handler { return server.handler }
 func (server *Server) Token() string         { return server.token }
+func (server *Server) PublishConversation(sessionID string) {
+	server.hub.Publish(realtime.Event{Kind: "conversation.saved", SessionID: sessionID})
+}
 
 func (server *Server) Listen() (net.Listener, error) {
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp4", "127.0.0.1:0")

@@ -29,7 +29,11 @@ func (server *Server) enforceLocalBoundary(next http.Handler) http.Handler {
 			next.ServeHTTP(response, request)
 			return
 		}
-		if !server.validToken(request.Header.Get("Authorization")) {
+		authorized := server.validToken(request.Header.Get("Authorization"))
+		if !authorized && request.URL.Path == "/api/v1/live" {
+			authorized = server.validRawToken(request.URL.Query().Get("token"))
+		}
+		if !authorized {
 			response.Header().Set("WWW-Authenticate", "Bearer")
 			writeError(response, http.StatusUnauthorized, "local session token required")
 			return
@@ -38,16 +42,19 @@ func (server *Server) enforceLocalBoundary(next http.Handler) http.Handler {
 	})
 }
 
+func (server *Server) validRawToken(provided string) bool {
+	if len(provided) != len(server.token) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(server.token)) == 1
+}
+
 func (server *Server) validToken(header string) bool {
 	const prefix = "Bearer "
 	if !strings.HasPrefix(header, prefix) {
 		return false
 	}
-	provided := strings.TrimPrefix(header, prefix)
-	if len(provided) != len(server.token) {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(provided), []byte(server.token)) == 1
+	return server.validRawToken(strings.TrimPrefix(header, prefix))
 }
 
 func isLoopbackOrigin(origin string) bool {

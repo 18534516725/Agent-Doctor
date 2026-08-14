@@ -156,6 +156,7 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 			ClientName:    defaultString(os.Getenv("AGENT_DOCTOR_CLIENT"), "auto-detected"),
 			ClientVersion: os.Getenv("AGENT_DOCTOR_CLIENT_VERSION"),
 			ProjectID:     defaultString(os.Getenv("AGENT_DOCTOR_PROJECT_ID"), "local-project"),
+			OnCommitted:   service.PublishConversation,
 		})
 		if proxyErr != nil {
 			_ = listener.Close()

@@ -218,6 +218,84 @@ func (database *DB) ListClientConnections(ctx context.Context) ([]conversations.
 	return result, rows.Err()
 }
 
+func (database *DB) ListConversationRequests(ctx context.Context, limit int, before string) ([]conversations.Request, error) {
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	query, arguments := "SELECT id FROM model_requests", []any{}
+	if before != "" {
+		query += " WHERE started_at < ?"
+		arguments = append(arguments, before)
+	}
+	query += " ORDER BY started_at DESC, id DESC LIMIT ?"
+	arguments = append(arguments, limit)
+	rows, err := database.sql.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("list conversation request IDs: %w", err)
+	}
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	result := make([]conversations.Request, 0, len(ids))
+	for _, id := range ids {
+		record, err := database.GetConversationRequest(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, record)
+	}
+	return result, nil
+}
+
+func (database *DB) DeleteConversationSession(ctx context.Context, sessionID string) error {
+	if database.readOnly {
+		return ErrReadOnlyRecovery
+	}
+	result, err := database.sql.ExecContext(ctx, "DELETE FROM sessions WHERE id=?", sessionID)
+	if err != nil {
+		return fmt.Errorf("delete conversation session: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted session count: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("conversation session %q not found", sessionID)
+	}
+	return nil
+}
+
+func (database *DB) LiveConversationAnalysis(ctx context.Context) (conversations.LiveAnalysis, error) {
+	result := conversations.LiveAnalysis{Limitations: []string{"只有响应明确返回 Token 时才计入精确用量；没有价格目录时金额保持未知。"}}
+	err := database.sql.QueryRowContext(ctx, `
+		SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cached_tokens), 0),
+			COALESCE(SUM(reasoning_tokens), 0),
+			COALESCE(SUM(CASE WHEN cost_precision='exact' THEN cost_amount_micros ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN cost_precision='estimated' THEN cost_amount_micros ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN cost_precision='unavailable' THEN 1 ELSE 0 END), 0),
+			COALESCE(AVG(duration_ms), 0) FROM model_requests`).Scan(
+		&result.Requests, &result.ActiveSessions, &result.InputTokens, &result.OutputTokens,
+		&result.CachedTokens, &result.ReasoningTokens, &result.ExactCostMicros,
+		&result.EstimatedCostMicros, &result.UnknownCostCount, &result.AverageLatencyMS)
+	if err != nil {
+		return conversations.LiveAnalysis{}, fmt.Errorf("query live conversation analysis: %w", err)
+	}
+	return result, nil
+}
+
 func validateConversationRequest(record conversations.Request) error {
 	if strings.TrimSpace(record.ID) == "" || strings.TrimSpace(record.SessionID) == "" || strings.TrimSpace(record.ProjectID) == "" {
 		return errors.New("request, session and project IDs are required")

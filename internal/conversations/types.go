@@ -62,3 +62,17 @@ type ClientConnection struct {
 	LastHeartbeatAt *time.Time `json:"lastHeartbeatAt,omitempty"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 }
+
+type LiveAnalysis struct {
+	Requests            int      `json:"requests"`
+	ActiveSessions      int      `json:"activeSessions"`
+	InputTokens         int64    `json:"inputTokens"`
+	OutputTokens        int64    `json:"outputTokens"`
+	CachedTokens        int64    `json:"cachedTokens"`
+	ReasoningTokens     int64    `json:"reasoningTokens"`
+	ExactCostMicros     int64    `json:"exactCostMicros"`
+	EstimatedCostMicros int64    `json:"estimatedCostMicros"`
+	UnknownCostCount    int      `json:"unknownCostCount"`
+	AverageLatencyMS    float64  `json:"averageLatencyMs"`
+	Limitations         []string `json:"limitations"`
+}
