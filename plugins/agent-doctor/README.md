@@ -1,4 +1,4 @@
-# Agent Doctor for Codex
+# Agent Doctor by NexoToken for Codex
 
 This repo-local plugin exposes Agent Doctor's sanitized, read-only MCP tools and the `$agent-doctor` diagnostic skill to Codex.
 

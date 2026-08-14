@@ -1,6 +1,8 @@
-# Agent Doctor
+# Agent Doctor by NexoToken
 
 **A local reliability and guidance layer for AI coding agents.**
+
+Agent Doctor is an open-source local tool by [NexoToken](https://www.nexotoken.net/official), an AI API and agent tools platform for developers.
 
 Codex and Claude Code do the work. Agent Doctor watches the evidence, detects
 when a task is looping, losing context, or trying to finish without validation,
