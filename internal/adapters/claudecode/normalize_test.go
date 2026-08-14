@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 )
 
 func TestNormalizeOfficialHookAllowlistsEvidence(t *testing.T) {
@@ -106,6 +107,7 @@ func TestNormalizeHookFingerprintChangesWithToolInput(t *testing.T) {
 func TestNormalizeSupportedClaudeLifecycleEvents(t *testing.T) {
 	want := map[string]string{
 		"SessionStart":       events.EventSessionStarted,
+		"PreToolUse":         events.EventToolStarted,
 		"PreCompact":         events.EventContextCompacted,
 		"PostToolUse":        events.EventToolCompleted,
 		"PostToolUseFailure": events.EventToolFailed,
@@ -147,5 +149,82 @@ func TestClaudeHookFailureIsFailOpen(t *testing.T) {
 	}
 	if !strings.Contains(diagnostics.String(), "was not recorded") || strings.Contains(diagnostics.String(), "unknown") {
 		t.Fatalf("unexpected diagnostics: %q", diagnostics.String())
+	}
+}
+
+func TestResponseForDecisionAddsGuidanceContext(t *testing.T) {
+	now := time.Now().UTC()
+	for _, hookName := range []string{"SessionStart", "PostToolUse", "PreCompact"} {
+		for _, kind := range []guidance.Kind{guidance.KindAdvise, guidance.KindRedirect, guidance.KindVerify} {
+			decision := guidance.Decision{
+				Kind: kind, Finding: "Repeated failure", Instruction: "Choose another diagnostic step.",
+				ExpiresAt: now.Add(time.Minute),
+			}
+			response, ok := ResponseForDecision(hookName, guidance.ControlGuide, decision, 800, now)
+			if !ok || response.HookSpecificOutput == nil {
+				t.Fatalf("hook=%s kind=%s response=%+v ok=%v", hookName, kind, response, ok)
+			}
+			if response.HookSpecificOutput.HookEventName != hookName || !strings.Contains(response.HookSpecificOutput.AdditionalContext, "Choose another") {
+				t.Fatalf("unexpected context response: %+v", response)
+			}
+		}
+	}
+}
+
+func TestResponseForDecisionEnforcesOnlyAtGuardLevel(t *testing.T) {
+	now := time.Now().UTC()
+	blocked := guidance.Decision{
+		Kind: guidance.KindBlock, Finding: "Unsafe repeated mutation", Instruction: "Inspect evidence first.",
+		ExpiresAt: now.Add(time.Minute),
+	}
+	response, ok := ResponseForDecision("PreToolUse", guidance.ControlGuard, blocked, 800, now)
+	if !ok || response.HookSpecificOutput == nil || response.HookSpecificOutput.PermissionDecision != "deny" {
+		t.Fatalf("guard did not deny PreToolUse: %+v ok=%v", response, ok)
+	}
+	if _, ok := ResponseForDecision("PreToolUse", guidance.ControlGuide, blocked, 800, now); ok {
+		t.Fatal("guide mode enforced a block")
+	}
+
+	verify := guidance.Decision{
+		Kind: guidance.KindVerify, Finding: "Validation is missing", Instruction: "Run tests.",
+		ExpiresAt: now.Add(time.Minute),
+	}
+	response, ok = ResponseForDecision("Stop", guidance.ControlAutopilot, verify, 800, now)
+	if !ok || response.Decision != "block" || !strings.Contains(response.Reason, "Run tests") {
+		t.Fatalf("autopilot did not block unverified stop: %+v ok=%v", response, ok)
+	}
+}
+
+func TestResponseForDecisionStaysSilentWhenNoInterventionIsValid(t *testing.T) {
+	now := time.Now().UTC()
+	cases := []struct {
+		level    guidance.ControlLevel
+		decision guidance.Decision
+	}{
+		{guidance.ControlObserve, guidance.Decision{Kind: guidance.KindRedirect, ExpiresAt: now.Add(time.Minute)}},
+		{guidance.ControlGuide, guidance.Decision{Kind: guidance.KindContinue, ExpiresAt: now.Add(time.Minute)}},
+		{guidance.ControlGuide, guidance.Decision{Kind: guidance.KindAdvise, ExpiresAt: now.Add(-time.Second)}},
+	}
+	for _, test := range cases {
+		if response, ok := ResponseForDecision("PostToolUse", test.level, test.decision, 800, now); ok {
+			t.Fatalf("unexpected response %+v for level=%s decision=%+v", response, test.level, test.decision)
+		}
+	}
+}
+
+func TestResponseForDecisionBoundsAndSanitizesGuidance(t *testing.T) {
+	now := time.Now().UTC()
+	decision := guidance.Decision{
+		Kind:        guidance.KindAdvise,
+		Finding:     "Authorization: Bearer synthetic-secret at /Users/alice/private/repo",
+		Instruction: strings.Repeat("continue safely ", 1000), ExpiresAt: now.Add(time.Minute),
+	}
+	response, ok := ResponseForDecision("PostToolUse", guidance.ControlGuide, decision, 40, now)
+	if !ok || response.HookSpecificOutput == nil {
+		t.Fatalf("missing response: %+v", response)
+	}
+	encoded, _ := json.Marshal(response)
+	if len(encoded) > 1000 || strings.Contains(string(encoded), "synthetic-secret") || strings.Contains(string(encoded), "/Users/alice") {
+		t.Fatalf("unsafe guidance response: %s", encoded)
 	}
 }

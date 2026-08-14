@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -269,6 +270,46 @@ func TestClaudeCodeHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeGuidanceHookWritesBoundedFeedback(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	store := &fakeClaudeGuidanceStore{
+		decision: guidance.Decision{
+			Kind: guidance.KindRedirect, Severity: guidance.SeverityHigh,
+			Finding: "The same tool call failed repeatedly", Instruction: "Choose a different diagnostic step.",
+			ExpiresAt: now.Add(time.Minute),
+		},
+		level: guidance.ControlGuide,
+	}
+	input := strings.NewReader(`{"session_id":"session-1","cwd":"/private/project","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"secret"}}`)
+	var stdout, stderr bytes.Buffer
+	code := runClaudeCodeGuidanceHook(input, &stdout, &stderr, store, func() time.Time { return now })
+	if code != 0 || store.inserted.EventType != events.EventToolCompleted {
+		t.Fatalf("code=%d inserted=%+v stderr=%q", code, store.inserted, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "additionalContext") || !strings.Contains(stdout.String(), "Choose a different") {
+		t.Fatalf("missing guidance response: %q", stdout.String())
+	}
+	for _, forbidden := range []string{"/private/project", "command", "secret"} {
+		if strings.Contains(stdout.String(), forbidden) {
+			t.Fatalf("hook response leaked %q: %s", forbidden, stdout.String())
+		}
+	}
+}
+
+func TestClaudeCodeGuidanceHookFailsOpenAndSilent(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	store := &fakeClaudeGuidanceStore{err: errors.New("private database failure")}
+	input := strings.NewReader(`{"session_id":"session-1","cwd":"/repo","hook_event_name":"PostToolUse"}`)
+	var stdout, stderr bytes.Buffer
+	code := runClaudeCodeGuidanceHook(input, &stdout, &stderr, store, func() time.Time { return now })
+	if code != 0 || stdout.Len() != 0 {
+		t.Fatalf("hook did not fail open: code=%d stdout=%q", code, stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "will continue normally") || strings.Contains(stderr.String(), "private database failure") {
+		t.Fatalf("unsafe diagnostics: %q", stderr.String())
+	}
+}
+
 func TestClineHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
 	input := strings.NewReader(`{"taskId":"task-1","hookName":"PreCompact","clineVersion":"1.2.3","timestamp":"1786600800000","workspaceRoots":["/private/project"],"model":{"provider":"private","slug":"public-model"},"preCompact":{"conversationLength":10,"estimatedTokens":100},"transcript":"must-not-store"}`)
 	var captured events.Event
@@ -407,4 +448,24 @@ func (store fakeLocalGuidanceStore) GuidanceControlLevel(_ context.Context, _ st
 
 func (store fakeLocalAnalysisStore) LiveConversationAnalysis(_ context.Context) (conversations.LiveAnalysis, error) {
 	return store.analysis, nil
+}
+
+type fakeClaudeGuidanceStore struct {
+	inserted events.Event
+	decision guidance.Decision
+	level    guidance.ControlLevel
+	err      error
+}
+
+func (store *fakeClaudeGuidanceStore) InsertEvent(_ context.Context, event events.Event) error {
+	store.inserted = event
+	return store.err
+}
+
+func (store *fakeClaudeGuidanceStore) RuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
+	return store.decision, store.err
+}
+
+func (store *fakeClaudeGuidanceStore) GuidanceControlLevel(_ context.Context, _ string) (guidance.ControlLevel, error) {
+	return store.level, store.err
 }

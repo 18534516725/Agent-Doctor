@@ -22,6 +22,7 @@ import (
 	codexadapter "github.com/18534516725/Agent-Doctor/internal/adapters/codex"
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 	"github.com/18534516725/Agent-Doctor/internal/installer"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
 	localproxy "github.com/18534516725/Agent-Doctor/internal/proxy"
@@ -97,9 +98,7 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 			return 0
 		}
 		defer database.Close()
-		return runClaudeCodeHook(input, func(event events.Event) error {
-			return database.InsertEvent(context.Background(), event)
-		}, stderr, time.Now)
+		return runClaudeCodeGuidanceHook(input, stdout, stderr, database, time.Now)
 	}
 	if len(args) == 3 && args[0] == "hook" && args[1] == "cline" {
 		if capturePaused() {
@@ -696,6 +695,63 @@ func printUsage(writer io.Writer) {
 
 func runClaudeCodeHook(input io.Reader, insert func(events.Event) error, diagnostics io.Writer, now func() time.Time) int {
 	return claudecode.IngestFailOpen(input, now(), insert, diagnostics)
+}
+
+type claudeGuidanceStore interface {
+	InsertEvent(context.Context, events.Event) error
+	RuntimeGuidance(context.Context, string, time.Time) (guidance.Decision, error)
+	GuidanceControlLevel(context.Context, string) (guidance.ControlLevel, error)
+}
+
+func runClaudeCodeGuidanceHook(input io.Reader, stdout, diagnostics io.Writer, store claudeGuidanceStore, now func() time.Time) int {
+	raw, err := io.ReadAll(io.LimitReader(input, events.MaxPayloadBytes+1))
+	evaluatedAt := now().UTC()
+	if err != nil || len(raw) == 0 || len(raw) > events.MaxPayloadBytes || store == nil {
+		claudeHookDiagnostic(diagnostics)
+		return 0
+	}
+	event, err := claudecode.NormalizeHook(json.RawMessage(raw), evaluatedAt)
+	if err != nil {
+		claudeHookDiagnostic(diagnostics)
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	if err := store.InsertEvent(ctx, event); err != nil {
+		claudeHookDiagnostic(diagnostics)
+		return 0
+	}
+	decision, err := store.RuntimeGuidance(ctx, event.SessionID, evaluatedAt)
+	if err != nil {
+		claudeHookDiagnostic(diagnostics)
+		return 0
+	}
+	level, err := store.GuidanceControlLevel(ctx, event.ProjectID)
+	if err != nil {
+		claudeHookDiagnostic(diagnostics)
+		return 0
+	}
+	var envelope struct {
+		HookEventName string `json:"hook_event_name"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		claudeHookDiagnostic(diagnostics)
+		return 0
+	}
+	response, ok := claudecode.ResponseForDecision(envelope.HookEventName, level, decision, 800, evaluatedAt)
+	if !ok {
+		return 0
+	}
+	if err := json.NewEncoder(stdout).Encode(response); err != nil {
+		claudeHookDiagnostic(diagnostics)
+	}
+	return 0
+}
+
+func claudeHookDiagnostic(writer io.Writer) {
+	if writer != nil {
+		fmt.Fprintln(writer, "agent-doctor: local guidance was unavailable; Claude Code will continue normally")
+	}
 }
 
 func runClineHook(input io.Reader, insert func(events.Event) error, diagnostics io.Writer) int {

@@ -14,7 +14,7 @@ func TestClaudePluginAndHookContract(t *testing.T) {
 	}
 	hookDocument := object(t, "hooks/hooks.json")
 	hooks := hookDocument["hooks"].(map[string]any)
-	wantEvents := []string{"SessionStart", "PreCompact", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted", "Stop", "SessionEnd"}
+	wantEvents := []string{"SessionStart", "PreToolUse", "PreCompact", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted", "Stop", "SessionEnd"}
 	for _, eventName := range wantEvents {
 		groups, ok := hooks[eventName].([]any)
 		if !ok || len(groups) != 1 {

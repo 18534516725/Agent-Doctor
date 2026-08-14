@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
+	"github.com/18534516725/Agent-Doctor/internal/privacy"
 )
 
 const maxHookInputBytes = events.MaxPayloadBytes
@@ -28,6 +31,7 @@ type hookInput struct {
 
 var hookEventTypes = map[string]string{
 	"SessionStart":       events.EventSessionStarted,
+	"PreToolUse":         events.EventToolStarted,
 	"PreCompact":         events.EventContextCompacted,
 	"PostToolUse":        events.EventToolCompleted,
 	"PostToolUseFailure": events.EventToolFailed,
@@ -119,8 +123,10 @@ func boundedLabel(value string) string {
 }
 
 type HookSpecificOutput struct {
-	HookEventName     string `json:"hookEventName"`
-	AdditionalContext string `json:"additionalContext"`
+	HookEventName            string `json:"hookEventName"`
+	AdditionalContext        string `json:"additionalContext,omitempty"`
+	PermissionDecision       string `json:"permissionDecision,omitempty"`
+	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
 
 type SessionStartOutput struct {
@@ -141,6 +147,59 @@ func SessionStartResponse(capsule string, tokenBudget int) (SessionStartOutput, 
 	return SessionStartOutput{HookSpecificOutput: HookSpecificOutput{
 		HookEventName: "SessionStart", AdditionalContext: capsule,
 	}}, nil
+}
+
+type GuidanceResponse struct {
+	Decision           string              `json:"decision,omitempty"`
+	Reason             string              `json:"reason,omitempty"`
+	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
+}
+
+var (
+	guidanceUnixPathPattern    = regexp.MustCompile(`(?:^|[\s(])/(?:[^/\s]+/)+[^\s),;]*`)
+	guidanceWindowsPathPattern = regexp.MustCompile(`(?i)\b[A-Z]:\\(?:[^\\\r\n]+\\)*[^\s,;]*`)
+)
+
+// ResponseForDecision maps a content-free decision onto documented Claude
+// hook response fields. Observe mode and stale or healthy decisions are silent.
+func ResponseForDecision(hookName string, level guidance.ControlLevel, decision guidance.Decision, tokenBudget int, now time.Time) (GuidanceResponse, bool) {
+	if tokenBudget < 1 || tokenBudget > 800 || level == guidance.ControlObserve || decision.Kind == guidance.KindContinue || !decision.ExpiresAt.After(now) {
+		return GuidanceResponse{}, false
+	}
+	reason := boundedGuidanceText(strings.TrimSpace(strings.Join([]string{decision.Finding, decision.Instruction}, " ")), tokenBudget)
+	if reason == "" {
+		return GuidanceResponse{}, false
+	}
+
+	canEnforce := level == guidance.ControlGuard || level == guidance.ControlAutopilot
+	if hookName == "PreToolUse" && decision.Kind == guidance.KindBlock && canEnforce {
+		return GuidanceResponse{HookSpecificOutput: &HookSpecificOutput{
+			HookEventName: hookName, PermissionDecision: "deny", PermissionDecisionReason: reason,
+		}}, true
+	}
+	if hookName == "Stop" && decision.Kind == guidance.KindVerify && canEnforce {
+		return GuidanceResponse{Decision: "block", Reason: reason}, true
+	}
+	if hookName == "SessionStart" || hookName == "PostToolUse" || hookName == "PostToolUseFailure" || hookName == "PreCompact" {
+		switch decision.Kind {
+		case guidance.KindAdvise, guidance.KindRedirect, guidance.KindVerify:
+			return GuidanceResponse{HookSpecificOutput: &HookSpecificOutput{
+				HookEventName: hookName, AdditionalContext: reason,
+			}}, true
+		}
+	}
+	return GuidanceResponse{}, false
+}
+
+func boundedGuidanceText(value string, tokenBudget int) string {
+	value = privacy.FilterText(value)
+	value = guidanceUnixPathPattern.ReplaceAllString(value, " [LOCAL_PATH]")
+	value = guidanceWindowsPathPattern.ReplaceAllString(value, "[LOCAL_PATH]")
+	limit := tokenBudget * 4
+	if len(value) > limit {
+		value = value[:limit]
+	}
+	return strings.TrimSpace(value)
 }
 
 func IngestFailOpen(input io.Reader, receivedAt time.Time, store func(events.Event) error, diagnostics io.Writer) int {
