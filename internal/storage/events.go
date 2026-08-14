@@ -19,6 +19,22 @@ func (database *DB) InsertEvent(ctx context.Context, event events.Event) error {
 	if database.readOnly {
 		return ErrReadOnlyRecovery
 	}
+	transaction, err := database.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin event transaction: %w", err)
+	}
+	defer transaction.Rollback()
+
+	if err := insertEventTx(ctx, transaction, event); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit event: %w", err)
+	}
+	return nil
+}
+
+func insertEventTx(ctx context.Context, transaction *sql.Tx, event events.Event) error {
 	if err := events.Validate(event); err != nil {
 		return fmt.Errorf("validate event: %w", err)
 	}
@@ -26,13 +42,6 @@ func (database *DB) InsertEvent(ctx context.Context, event events.Event) error {
 	if err != nil {
 		return fmt.Errorf("filter event payload: %w", err)
 	}
-
-	transaction, err := database.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin event transaction: %w", err)
-	}
-	defer transaction.Rollback()
-
 	timestamp := event.Timestamp.UTC().Format(time.RFC3339Nano)
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO projects(id, first_seen_at, last_seen_at) VALUES(?, ?, ?)
@@ -64,9 +73,6 @@ func (database *DB) InsertEvent(ctx context.Context, event events.Event) error {
 		timestamp, event.EventType, string(filteredPayload), event.Provenance, string(event.Precision),
 	); err != nil {
 		return fmt.Errorf("insert event: %w", err)
-	}
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit event: %w", err)
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 )
 
 func (database *DB) SaveConversationRequest(ctx context.Context, record conversations.Request) error {
@@ -104,9 +105,18 @@ func (database *DB) SaveConversationRequest(ctx context.Context, record conversa
 		completedAnalysisTime(record).Format(time.RFC3339Nano)); err != nil {
 		return fmt.Errorf("upsert request analysis: %w", err)
 	}
+	for _, event := range guidance.ProjectConversation(record) {
+		if err := insertEventTx(ctx, transaction, event); err != nil {
+			return fmt.Errorf("project conversation evidence: %w", err)
+		}
+	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit conversation: %w", err)
 	}
+	// Guidance is advisory and must never make durable conversation capture fail.
+	// Re-evaluate immediately so the dashboard and connected agents can react to
+	// the request that just completed without waiting for another MCP call.
+	_, _ = database.RuntimeGuidance(ctx, record.SessionID, completedAnalysisTime(record))
 	return nil
 }
 

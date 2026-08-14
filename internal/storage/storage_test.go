@@ -12,6 +12,7 @@ import (
 
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 )
 
 func storageEvent() events.Event {
@@ -253,6 +254,59 @@ func TestConversationRoundTripPreservesCompleteMessagesAndUsage(t *testing.T) {
 	}
 	if len(got.Messages) != 3 || got.Messages[1].Content != "完整保留这段对话。" || got.Messages[2].ToolPayloadJSON != `{"command":"go test ./..."}` {
 		t.Fatalf("messages not preserved in order: %+v", got.Messages)
+	}
+}
+
+func TestConversationGuidanceIsProjectedIdempotentlyAndEvaluatedAutomatically(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	ctx := context.Background()
+	started := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+	for index := 0; index < 3; index++ {
+		completed := started.Add(time.Duration(index+1) * time.Second)
+		record := conversations.Request{
+			ID: fmt.Sprintf("failed-request-%d", index), SessionID: "guided-session", ProjectID: "guided-project",
+			Client: events.ClientRef{Name: "codex", Version: "1"}, Model: events.ModelRef{DisplayName: "gpt-test"},
+			Protocol: "openai", Method: "POST", Path: "/v1/responses", StatusCode: 500,
+			StartedAt: started.Add(time.Duration(index) * time.Second), CompletedAt: &completed,
+			Usage: conversations.Usage{Precision: "exact", Provenance: "provider-response"},
+			Cost:  conversations.Cost{Currency: "USD", Precision: "unavailable", Provenance: "no-catalog"},
+			Messages: []conversations.Message{{
+				ID: fmt.Sprintf("failed-message-%d", index), Sequence: 0, Role: "tool", ToolName: "exec",
+				ToolPayloadJSON: `{"command":"same failing action"}`, Content: "same failure", CreatedAt: completed,
+			}},
+		}
+		if err := database.SaveConversationRequest(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+		if index == 2 {
+			if err := database.SaveConversationRequest(ctx, record); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	var eventCount int
+	if err := database.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE session_id='guided-session'").Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 3 {
+		t.Fatalf("projected events=%d want=3", eventCount)
+	}
+	var payload string
+	if err := database.sql.QueryRowContext(ctx, "SELECT payload_json FROM guidance_decisions WHERE session_id='guided-session'").Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var decision guidance.Decision
+	if err := json.Unmarshal([]byte(payload), &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != guidance.KindRedirect {
+		t.Fatalf("automatic guidance=%+v", decision)
 	}
 }
 
