@@ -436,7 +436,12 @@ func runSetup(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "agent-doctor: home directory unavailable")
 		return 1
 	}
-	plan, err := installer.BuildCodexMCPPlan(home)
+	var plan installer.Plan
+	if hasFlag(args, "--all") {
+		plan, err = installer.BuildAllPlan(home)
+	} else {
+		plan, err = installer.BuildCodexMCPPlan(home)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "agent-doctor: setup plan unavailable")
 		return 1

@@ -102,6 +102,47 @@ func TestApplyIsIdempotentAndCreatesMarkedBlock(t *testing.T) {
 	}
 }
 
+func TestBuildAllPlanOwnsCodexAndClaudeGuidanceAssets(t *testing.T) {
+	home := t.TempDir()
+	plan, err := BuildAllPlan(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join(canonicalHome, ".codex", "config.toml"),
+		filepath.Join(canonicalHome, ".codex", "skills", "agent-doctor", "SKILL.md"),
+		filepath.Join(canonicalHome, ".codex", "AGENTS.md"),
+		filepath.Join(canonicalHome, ".claude", "hooks", "agent-doctor.json"),
+		filepath.Join(canonicalHome, ".claude", "skills", "agent-doctor", "SKILL.md"),
+	}
+	if len(plan.Changes) != len(want) {
+		t.Fatalf("changes=%d want=%d", len(plan.Changes), len(want))
+	}
+	for index, path := range want {
+		if plan.Changes[index].Path != path {
+			t.Fatalf("change[%d]=%q want=%q", index, plan.Changes[index].Path, path)
+		}
+	}
+	if _, err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	second, err := BuildAllPlan(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Apply(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Applied != 0 || result.Skipped != len(want) {
+		t.Fatalf("second apply=%+v", result)
+	}
+}
+
 func TestApplyFailureRollsBackEveryPriorChange(t *testing.T) {
 	home := t.TempDir()
 	firstPath := filepath.Join(home, "client-a", "config.toml")

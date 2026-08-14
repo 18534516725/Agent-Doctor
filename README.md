@@ -17,13 +17,12 @@ non-reversible evidence fingerprints.
 
 ## 60-second local start
 
-Until the first signed release is published, build from this repository:
+Clone the repository and run one command. It installs dependencies, builds and
+tests the product, installs the binary, configures the owned Codex and Claude
+Code assets, opens the dashboard, and keeps the local service running:
 
 ```bash
-pnpm install --frozen-lockfile
-./scripts/embed-dashboard.sh
-go build -o ./bin/agent-doctor ./cmd/agent-doctor
-./bin/agent-doctor start
+./scripts/install-local.sh
 ```
 
 `start` checks and idempotently prepares the Agent Doctor-owned Codex integration,
@@ -97,6 +96,7 @@ local controls). The default is `guide`.
 | --- | --- |
 | `agent-doctor setup --json` | Preview detected clients and exact owned changes |
 | `agent-doctor setup --yes --json` | Apply the reviewed Codex MCP block |
+| `agent-doctor setup --all --yes --json` | Install owned Codex MCP/Skill/AGENTS and Claude Hook/Skill assets |
 | `agent-doctor start` | Check managed integrations, start loopback services, and open the dashboard |
 | `agent-doctor start --no-open` | Same startup flow without opening a browser |
 | `agent-doctor dashboard` | Alias for the visual workspace |

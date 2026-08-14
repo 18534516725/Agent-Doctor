@@ -16,5 +16,9 @@ curl --fail --location --proto '=https' --tlsv1.2 "$repo/SHA256SUMS.txt" -o "$te
 tar -xzf "$temporary/$archive" -C "$temporary"
 install -d "$HOME/.local/bin"
 install -m 0755 "$temporary/agent-doctor" "$HOME/.local/bin/agent-doctor"
-"$HOME/.local/bin/agent-doctor" setup --yes --json
-echo "Installed. Start with: agent-doctor start --no-open"
+"$HOME/.local/bin/agent-doctor" setup --all --yes --json
+if [ "${AGENT_DOCTOR_INSTALL_NO_START:-0}" = "1" ]; then
+  echo "Installed. Start with: $HOME/.local/bin/agent-doctor start"
+else
+  exec "$HOME/.local/bin/agent-doctor" start
+fi
