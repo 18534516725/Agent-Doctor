@@ -77,6 +77,8 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 		if database, err := openLocalStore(); err == nil {
 			defer database.Close()
 			backend = localMCPBackend{store: database}
+			markCodexMCPConnection(database, "connected")
+			defer markCodexMCPConnection(database, "detected")
 		}
 		if err := mcp.NewServer(Version, backend).Serve(context.Background(), input, stdout); err != nil {
 			fmt.Fprintln(stderr, "agent-doctor MCP server failed")
@@ -115,6 +117,20 @@ func RunWithInput(args []string, input io.Reader, stdout, stderr io.Writer) int 
 
 	printUsage(stderr)
 	return 2
+}
+
+func markCodexMCPConnection(database *storage.DB, state string) {
+	now := time.Now().UTC()
+	connection := conversations.ClientConnection{
+		Key: "codex", DisplayName: "Codex", Detected: true, State: state,
+		Capability: "MCP / 本地代理", Detail: "Codex 已连接 Agent Doctor MCP", UpdatedAt: now,
+	}
+	if state == "connected" {
+		connection.LastHeartbeatAt = &now
+	} else {
+		connection.Detail = "已检测到客户端，等待连接"
+	}
+	_ = database.UpsertClientConnection(context.Background(), connection)
 }
 
 func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
@@ -314,7 +330,10 @@ func recordDetectedClients(database *storage.DB) {
 	for _, client := range clients {
 		state, detail := "unavailable", "未检测到本机配置"
 		if client.Detected {
-			state, detail = "detected", "已检测到客户端，等待实时调用"
+			state, detail = "detected", "仅检测到客户端，尚未建立实时连接"
+			if client.ID == "codex" {
+				detail = "集成配置已就绪；重新启动 Codex 后建立连接"
+			}
 		}
 		_ = database.UpsertClientConnection(context.Background(), conversations.ClientConnection{
 			Key: client.ID, DisplayName: client.Name, Detected: client.Detected, State: state,

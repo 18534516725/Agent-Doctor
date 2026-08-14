@@ -198,6 +198,54 @@ func TestMCPServeStartsReadOnlyProtocolServer(t *testing.T) {
 	}
 }
 
+func TestCodexMCPServePublishesConnectionLifecycle(t *testing.T) {
+	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
+	reader, writer := io.Pipe()
+	var output bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- RunWithInput([]string{"mcp", "serve"}, reader, &output, io.Discard)
+	}()
+	if _, err := io.WriteString(writer, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"codex","version":"test"}}}`+"\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForCodexConnectionState(t, "connected")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("mcp serve code=%d output=%s", code, output.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("mcp serve did not stop after stdin closed")
+	}
+	waitForCodexConnectionState(t, "detected")
+}
+
+func waitForCodexConnectionState(t *testing.T, expected string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		database, err := openLocalStore()
+		if err == nil {
+			connections, listErr := database.ListClientConnections(context.Background())
+			_ = database.Close()
+			if listErr == nil {
+				for _, connection := range connections {
+					if connection.Key == "codex" && connection.State == expected {
+						return
+					}
+				}
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("codex connection never reached %q", expected)
+}
+
 func TestClaudeCodeHookRecordsOnlyNormalizedLifecycleEvidence(t *testing.T) {
 	input := strings.NewReader(`{"session_id":"session-1","cwd":"/private/project","hook_event_name":"PreCompact","model":"public-model","tool_input":{"secret":"must-not-store"}}`)
 	var captured events.Event

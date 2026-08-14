@@ -10,6 +10,19 @@ agent-doctor start
 
 Open the newly printed URL. Do not bookmark the old session URL.
 
+## Codex is found but the connection count stays at zero
+
+`Found` only means the client configuration exists. After Agent Doctor writes or
+updates its managed MCP block, fully quit and reopen Codex once. A live
+`agent-doctor mcp serve` process then records a local heartbeat and the dashboard
+changes Codex to `connected` within the 2.5-second polling interval. Agent Doctor
+never force-quits or restarts an editor.
+
+MCP connectivity proves that Codex can call Agent Doctor's read-only evidence
+tools. It does not grant Agent Doctor access to the private Codex Desktop
+transcript. Complete message capture still requires a supported local proxy or
+an explicit client event interface.
+
 ## `doctor --json` reports read-only recovery
 
 A migration failed and Agent Doctor protected the original SQLite file. Keep
