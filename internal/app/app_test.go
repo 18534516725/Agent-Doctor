@@ -12,6 +12,7 @@ import (
 
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -337,6 +338,44 @@ func TestLocalMCPBackendReturnsCurrentProjectAnalysis(t *testing.T) {
 	}
 }
 
+func TestLocalMCPBackendReturnsRuntimeGuidance(t *testing.T) {
+	now := time.Now().UTC()
+	backend := localMCPBackend{store: fakeLocalGuidanceStore{
+		fakeLocalEvidenceStore: fakeLocalEvidenceStore{events: []events.Event{
+			{EventID: "event-1", Precision: events.PrecisionExact},
+			{EventID: "event-2", Precision: events.PrecisionExact},
+			{EventID: "event-3", Precision: events.PrecisionExact},
+		}},
+		decision: guidance.Decision{
+			DecisionID: "decision-1", SessionID: "session-1", ProjectID: "project-1",
+			Kind: guidance.KindRedirect, Severity: guidance.SeverityHigh,
+			Finding:           "The same tool action is failing repeatedly",
+			Evidence:          []string{"event-1", "event-2", "event-3"},
+			Instruction:       "Choose a different diagnostic step.",
+			ProhibitedActions: []string{"Do not repeat the identical action."},
+			Verification:      []string{"Run a deterministic check."},
+			CreatedAt:         now, ExpiresAt: now.Add(time.Minute),
+		},
+		level: guidance.ControlGuide,
+	}}
+	evidence, err := backend.Execute(context.Background(), "get_runtime_guidance", map[string]any{"sessionId": "session-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := evidence.Summary
+	for _, item := range evidence.Items {
+		joined += " " + item.Label + " " + item.Value
+	}
+	for _, expected := range []string{"failing repeatedly", "redirect", "high", "Choose a different", "event-1", "guide"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("guidance missing %q: %+v", expected, evidence)
+		}
+	}
+	if evidence.Provenance != "local-sqlite-deterministic-guidance" || evidence.Precision != "exact" {
+		t.Fatalf("guidance metadata=%+v", evidence)
+	}
+}
+
 type fakeLocalEvidenceStore struct{ events []events.Event }
 
 func (store fakeLocalEvidenceStore) ListSessionEvents(_ context.Context, _ string) ([]events.Event, error) {
@@ -346,6 +385,24 @@ func (store fakeLocalEvidenceStore) ListSessionEvents(_ context.Context, _ strin
 type fakeLocalAnalysisStore struct {
 	fakeLocalEvidenceStore
 	analysis conversations.LiveAnalysis
+}
+
+type fakeLocalGuidanceStore struct {
+	fakeLocalEvidenceStore
+	decision guidance.Decision
+	level    guidance.ControlLevel
+}
+
+func (store fakeLocalGuidanceStore) RuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
+	return store.decision, nil
+}
+
+func (store fakeLocalGuidanceStore) LatestRuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
+	return store.decision, nil
+}
+
+func (store fakeLocalGuidanceStore) GuidanceControlLevel(_ context.Context, _ string) (guidance.ControlLevel, error) {
+	return store.level, nil
 }
 
 func (store fakeLocalAnalysisStore) LiveConversationAnalysis(_ context.Context) (conversations.LiveAnalysis, error) {

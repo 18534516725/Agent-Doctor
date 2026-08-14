@@ -762,6 +762,13 @@ type localAnalysisStore interface {
 type localMCPBackend struct{ store localEvidenceStore }
 
 func (backend localMCPBackend) Execute(ctx context.Context, tool string, arguments map[string]any) (mcp.ToolEvidence, error) {
+	if tool == "get_runtime_guidance" {
+		store, ok := backend.store.(localGuidanceStore)
+		if !ok {
+			return guidanceUnavailable(tool), nil
+		}
+		return runtimeGuidanceEvidence(ctx, store, arguments, time.Now().UTC())
+	}
 	if tool == "get_project_analysis" {
 		store, ok := backend.store.(localAnalysisStore)
 		if !ok {

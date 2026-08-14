@@ -3,9 +3,15 @@ description: Request a compact, local Agent Doctor context capsule when it helps
 alwaysApply: false
 ---
 
-When diagnostics or prior project decisions are relevant, call the local
-`agent-doctor` MCP tool `get_context_capsule` for the current project.
+Call the local `agent-doctor` MCP tool `get_runtime_guidance` at task start,
+after two similar failures, after context compaction, and before claiming
+completion. Follow evidence-supported `redirect` or `verify` guidance. Treat a
+`continue` result as silence and do not add diagnostic noise.
+
+When diagnostics or prior project decisions are relevant, call
+`get_context_capsule` for the current project.
 
 Do not paste source files, transcript text, prompt history, or API key material
 into a rule. Treat returned context as evidence: retain its provenance and
 precision labels, and say when the context is unavailable instead of guessing.
+This MCP rule provides guidance only; do not claim it blocked an action.

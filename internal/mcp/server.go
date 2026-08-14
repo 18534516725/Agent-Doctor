@@ -107,7 +107,7 @@ func (server *Server) handle(ctx context.Context, incoming request) (response, b
 			"protocolVersion": protocol,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]string{"name": "agent-doctor", "title": "Agent Doctor", "version": server.version},
-			"instructions":    "All tools are read-only and return sanitized local evidence. Call get_project_analysis before a final answer when a task completes, has a failure, becomes slow, repeats work, or may have unusual token or cost impact. Briefly tell the user the most important evidence-backed finding and next action; never invent unavailable values.",
+			"instructions":    "All tools are read-only and return sanitized local evidence. Call get_runtime_guidance at task start, after repeated failure or context compaction, and before a final answer. Call get_project_analysis when a task completes, becomes slow, or may have unusual token or cost impact. Follow evidence-backed redirect or verify instructions, treat continue as silence, and never invent unavailable values.",
 		}), true
 	case "ping":
 		return resultResponse(incoming.ID, map[string]any{}), true
