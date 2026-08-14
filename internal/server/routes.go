@@ -14,6 +14,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 	"github.com/18534516725/Agent-Doctor/internal/realtime"
 )
 
@@ -38,6 +39,12 @@ type privacyStore interface {
 	SavePrivacySettings(context.Context, conversations.PrivacySettings) error
 }
 
+type guidanceStore interface {
+	ListActiveGuidance(context.Context, time.Time, int) ([]guidance.Decision, error)
+	GuidanceControlLevel(context.Context, string) (guidance.ControlLevel, error)
+	SaveGuidanceControlLevel(context.Context, string, guidance.ControlLevel, time.Time) error
+}
+
 func (server *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.dashboardHome)
@@ -51,11 +58,98 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/conversations/{id}", server.conversationDetails)
 	mux.HandleFunc("GET /api/v1/connections", server.connectionList)
 	mux.HandleFunc("GET /api/v1/analysis/live", server.liveAnalysis)
+	mux.HandleFunc("GET /api/v1/guidance/active", server.activeGuidance)
+	mux.HandleFunc("GET /api/v1/projects/{id}/guidance", server.getGuidanceControlLevel)
+	mux.HandleFunc("PUT /api/v1/projects/{id}/guidance", server.putGuidanceControlLevel)
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", server.deleteConversationSession)
 	mux.HandleFunc("GET /api/v1/sessions/", server.sessionDetails)
 	mux.HandleFunc("GET /api/v1/settings/privacy", server.getPrivacy)
 	mux.HandleFunc("PUT /api/v1/settings/privacy", server.putPrivacy)
 	return securityHeaders(mux)
+}
+
+func (server *Server) guidanceStore(response http.ResponseWriter) (guidanceStore, bool) {
+	store, ok := server.store.(guidanceStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "runtime guidance storage unavailable")
+	}
+	return store, ok
+}
+
+func (server *Server) activeGuidance(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.guidanceStore(response)
+	if !ok {
+		return
+	}
+	items, err := store.ListActiveGuidance(request.Context(), time.Now().UTC(), 50)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "runtime guidance unavailable")
+		return
+	}
+	if items == nil {
+		items = []guidance.Decision{}
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"items": items})
+}
+
+func (server *Server) getGuidanceControlLevel(response http.ResponseWriter, request *http.Request) {
+	projectID := request.PathValue("id")
+	if projectID == "" || len(projectID) > 128 {
+		writeError(response, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	store, ok := server.guidanceStore(response)
+	if !ok {
+		return
+	}
+	level, err := store.GuidanceControlLevel(request.Context(), projectID)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "guidance settings unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"controlLevel": level})
+}
+
+func (server *Server) putGuidanceControlLevel(response http.ResponseWriter, request *http.Request) {
+	projectID := request.PathValue("id")
+	if projectID == "" || len(projectID) > 128 {
+		writeError(response, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 16*1024)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var input struct {
+		ControlLevel guidance.ControlLevel `json:"controlLevel"`
+	}
+	if err := decoder.Decode(&input); err != nil || !validGuidanceControlLevel(input.ControlLevel) {
+		writeError(response, http.StatusBadRequest, "invalid guidance control level")
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		writeError(response, http.StatusBadRequest, "invalid guidance control level")
+		return
+	}
+	store, ok := server.guidanceStore(response)
+	if !ok {
+		return
+	}
+	if err := store.SaveGuidanceControlLevel(request.Context(), projectID, input.ControlLevel, time.Now().UTC()); err != nil {
+		writeError(response, http.StatusServiceUnavailable, "guidance settings unavailable")
+		return
+	}
+	server.hub.Publish(realtime.Event{Kind: "guidance.settings.changed"})
+	writeJSON(response, http.StatusOK, map[string]any{"controlLevel": input.ControlLevel})
+}
+
+func validGuidanceControlLevel(level guidance.ControlLevel) bool {
+	switch level {
+	case guidance.ControlObserve, guidance.ControlGuide, guidance.ControlGuard, guidance.ControlAutopilot:
+		return true
+	default:
+		return false
+	}
 }
 
 func (server *Server) conversationStore(response http.ResponseWriter) (ConversationStore, bool) {

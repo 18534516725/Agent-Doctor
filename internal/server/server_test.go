@@ -16,6 +16,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
+	"github.com/18534516725/Agent-Doctor/internal/guidance"
 )
 
 type memoryEventStore struct {
@@ -26,6 +27,8 @@ type memoryEventStore struct {
 	requests    []conversations.Request
 	connections []conversations.ClientConnection
 	analysis    conversations.LiveAnalysis
+	guidance    []guidance.Decision
+	levels      map[string]guidance.ControlLevel
 }
 
 func (store *memoryEventStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -85,6 +88,106 @@ func (store *memoryEventStore) DashboardSummary(context.Context) (dashboard.Summ
 
 func (store *memoryEventStore) DashboardSnapshot(context.Context) (dashboard.Snapshot, error) {
 	return store.snapshot, nil
+}
+
+func (store *memoryEventStore) ListActiveGuidance(_ context.Context, _ time.Time, limit int) ([]guidance.Decision, error) {
+	items := store.guidance
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return append([]guidance.Decision(nil), items...), nil
+}
+
+func (store *memoryEventStore) GuidanceControlLevel(_ context.Context, projectID string) (guidance.ControlLevel, error) {
+	if level := store.levels[projectID]; level != "" {
+		return level, nil
+	}
+	return guidance.ControlGuide, nil
+}
+
+func (store *memoryEventStore) SaveGuidanceControlLevel(_ context.Context, projectID string, level guidance.ControlLevel, _ time.Time) error {
+	if store.levels == nil {
+		store.levels = map[string]guidance.ControlLevel{}
+	}
+	store.levels[projectID] = level
+	return nil
+}
+
+func TestGuidanceAPIIsQuietWhenNoInterventionIsActive(t *testing.T) {
+	service := newTestServer(t)
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/guidance/active", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != `{"items":[]}` {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestGuidanceAPIReturnsStructuredDecisionsWithoutRawEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	store := &memoryEventStore{guidance: []guidance.Decision{{
+		DecisionID: "decision-1", SessionID: "session-1", ProjectID: "project-1",
+		Kind: guidance.KindRedirect, Severity: guidance.SeverityHigh,
+		Finding: "Repeated tool failure", Instruction: "Choose a different diagnostic step.",
+		Evidence:  []string{"event-1", "event-2", "event-3"},
+		ExpiresAt: now.Add(time.Minute), CreatedAt: now,
+	}}}
+	service, _ := New(Config{Version: "0.1.0-dev", Store: store})
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/guidance/active", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `"kind":"redirect"`) || !strings.Contains(body, `"evidence":["event-1"`) {
+		t.Fatalf("status=%d body=%s", response.Code, body)
+	}
+	for _, forbidden := range []string{"payload", "prompt", "toolInput", "/Users/"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("guidance leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestGuidanceControlLevelAPIValidatesAndPersists(t *testing.T) {
+	store := &memoryEventStore{}
+	service, _ := New(Config{Version: "0.1.0-dev", Store: store})
+	get := authenticatedRequest(t, service, http.MethodGet, "/api/v1/projects/project-1/guidance", nil)
+	getResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(getResponse, get)
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"controlLevel":"guide"`) {
+		t.Fatalf("default status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	for _, level := range []guidance.ControlLevel{guidance.ControlObserve, guidance.ControlGuide, guidance.ControlGuard, guidance.ControlAutopilot} {
+		body := bytes.NewReader([]byte(`{"controlLevel":"` + string(level) + `"}`))
+		request := authenticatedRequest(t, service, http.MethodPut, "/api/v1/projects/project-1/guidance", body)
+		response := httptest.NewRecorder()
+		service.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || store.levels["project-1"] != level {
+			t.Fatalf("level=%s status=%d body=%s stored=%s", level, response.Code, response.Body.String(), store.levels["project-1"])
+		}
+	}
+	invalid := authenticatedRequest(t, service, http.MethodPut, "/api/v1/projects/project-1/guidance", bytes.NewReader([]byte(`{"controlLevel":"root"}`)))
+	invalidResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(invalidResponse, invalid)
+	if invalidResponse.Code != http.StatusBadRequest {
+		t.Fatalf("invalid status=%d body=%s", invalidResponse.Code, invalidResponse.Body.String())
+	}
+}
+
+func TestGuidanceRoutesStillRejectMissingTokenAndForeignOrigin(t *testing.T) {
+	service := newTestServer(t)
+	missing := httptest.NewRequest(http.MethodGet, "/api/v1/guidance/active", nil)
+	missingResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(missingResponse, missing)
+	if missingResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token status=%d", missingResponse.Code)
+	}
+	foreign := authenticatedRequest(t, service, http.MethodGet, "/api/v1/guidance/active", nil)
+	foreign.Header.Set("Origin", "https://attacker.example")
+	foreignResponse := httptest.NewRecorder()
+	service.Handler().ServeHTTP(foreignResponse, foreign)
+	if foreignResponse.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin status=%d", foreignResponse.Code)
+	}
 }
 
 func TestListenBindsOnlyLoopback(t *testing.T) {

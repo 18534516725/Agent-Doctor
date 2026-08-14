@@ -15,6 +15,10 @@ export type ClientConnection = { key: string; displayName: string; detected: boo
 export type FindingSeverity = 'good' | 'info' | 'low' | 'medium' | 'high';
 export type AnalysisFinding = { id: string; severity: FindingSeverity; title: string; description: string; evidence: string; recommendation: string };
 export type LiveAnalysis = { projectId: string; requests: number; activeSessions: number; inputTokens: number; outputTokens: number; cachedTokens: number; reasoningTokens: number; exactCostMicros: number; estimatedCostMicros: number; unknownCostCount: number; averageLatencyMs: number; failedRequests: number; toolCalls: number; tokensPerRequest: number; cacheHitRate: number; healthScore: number; summary: string; findings: AnalysisFinding[]; limitations: string[] };
+export type GuidanceKind = 'continue' | 'advise' | 'redirect' | 'ask' | 'block' | 'verify';
+export type GuidanceSeverity = 'info' | 'warning' | 'high' | 'critical';
+export type ControlLevel = 'observe' | 'guide' | 'guard' | 'autopilot';
+export type GuidanceDecision = { decisionId: string; sessionId: string; projectId: string; kind: GuidanceKind; severity: GuidanceSeverity; finding: string; evidence: string[]; confidence: string; instruction: string; prohibitedActions: string[]; verification: string[]; evidenceFingerprint: string; expiresAt: string; createdAt: string };
 
 export interface DashboardAPI {
   loadSummary(): Promise<Summary>;
@@ -26,6 +30,9 @@ export interface DashboardAPI {
   loadConversation(id: string): Promise<Conversation>;
   loadConnections(): Promise<ClientConnection[]>;
   loadLiveAnalysis(): Promise<LiveAnalysis>;
+  loadActiveGuidance(): Promise<GuidanceDecision[]>;
+  loadGuidanceControlLevel(projectId: string): Promise<{ controlLevel: ControlLevel }>;
+  updateGuidanceControlLevel(projectId: string, controlLevel: ControlLevel): Promise<{ controlLevel: ControlLevel }>;
   deleteSession(id: string): Promise<void>;
 }
 
@@ -48,5 +55,8 @@ export const localAPI: DashboardAPI = {
   loadConversation: (id) => request(`/api/v1/conversations/${encodeURIComponent(id)}`),
   async loadConnections() { return (await request<{ items: ClientConnection[] }>('/api/v1/connections')).items; },
   loadLiveAnalysis: () => request('/api/v1/analysis/live'),
+  async loadActiveGuidance() { return (await request<{ items: GuidanceDecision[] }>('/api/v1/guidance/active')).items; },
+  loadGuidanceControlLevel: (projectId) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance`),
+  updateGuidanceControlLevel: (projectId, controlLevel) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance`, { method: 'PUT', body: JSON.stringify({ controlLevel }) }),
   deleteSession: (id) => request(`/api/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
