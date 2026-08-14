@@ -40,6 +40,69 @@ func TestNormalizeOfficialHookAllowlistsEvidence(t *testing.T) {
 	}
 }
 
+func TestNormalizeHookFingerprintsCanonicalToolEvidence(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 13, 9, 10, 11, 0, time.UTC)
+	first, err := NormalizeHook(json.RawMessage(`{
+		"session_id":"session-1","cwd":"/repo","hook_event_name":"PostToolUse",
+		"tool_name":"Read","tool_use_id":"tool-1",
+		"tool_input":{"path":"private.go","options":{"limit":20,"offset":1}},
+		"tool_response":{"status":"ok","lines":20}
+	}`), receivedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NormalizeHook(json.RawMessage(`{
+		"session_id":"session-1","cwd":"/repo","hook_event_name":"PostToolUse",
+		"tool_name":"Read","tool_use_id":"tool-2",
+		"tool_input":{"options":{"offset":1,"limit":20},"path":"private.go"},
+		"tool_response":{"lines":20,"status":"ok"}
+	}`), receivedAt.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var firstPayload, secondPayload map[string]string
+	if err := json.Unmarshal(first.Payload, &firstPayload); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(second.Payload, &secondPayload); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"toolInputFingerprint", "toolResultFingerprint"} {
+		if firstPayload[key] == "" || !strings.HasPrefix(firstPayload[key], "sha256:") {
+			t.Fatalf("%s = %q, want sha256 fingerprint", key, firstPayload[key])
+		}
+		if firstPayload[key] != secondPayload[key] {
+			t.Fatalf("%s changed across equivalent JSON: %q != %q", key, firstPayload[key], secondPayload[key])
+		}
+	}
+	encoded := string(first.Payload)
+	for _, forbidden := range []string{"private.go", "options", "limit", "offset", "status", "lines"} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("payload leaked tool evidence %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestNormalizeHookFingerprintChangesWithToolInput(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 13, 9, 10, 11, 0, time.UTC)
+	normalize := func(path string) string {
+		raw := json.RawMessage(`{"session_id":"session-1","cwd":"/repo","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"path":"` + path + `"}}`)
+		event, err := NormalizeHook(raw, receivedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]string
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload["toolInputFingerprint"]
+	}
+	if normalize("one.go") == normalize("two.go") {
+		t.Fatal("different tool inputs produced the same fingerprint")
+	}
+}
+
 func TestNormalizeSupportedClaudeLifecycleEvents(t *testing.T) {
 	want := map[string]string{
 		"SessionStart":       events.EventSessionStarted,

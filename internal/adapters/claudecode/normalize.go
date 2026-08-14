@@ -15,13 +15,15 @@ import (
 const maxHookInputBytes = events.MaxPayloadBytes
 
 type hookInput struct {
-	SessionID     string `json:"session_id"`
-	WorkingDir    string `json:"cwd"`
-	HookEventName string `json:"hook_event_name"`
-	ToolName      string `json:"tool_name"`
-	ToolUseID     string `json:"tool_use_id"`
-	Source        string `json:"source"`
-	Model         string `json:"model"`
+	SessionID     string          `json:"session_id"`
+	WorkingDir    string          `json:"cwd"`
+	HookEventName string          `json:"hook_event_name"`
+	ToolName      string          `json:"tool_name"`
+	ToolUseID     string          `json:"tool_use_id"`
+	ToolInput     json.RawMessage `json:"tool_input"`
+	ToolResponse  json.RawMessage `json:"tool_response"`
+	Source        string          `json:"source"`
+	Model         string          `json:"model"`
 }
 
 var hookEventTypes = map[string]string{
@@ -65,6 +67,12 @@ func NormalizeHook(raw json.RawMessage, receivedAt time.Time) (events.Event, err
 	if input.Source != "" {
 		payload["source"] = boundedLabel(input.Source)
 	}
+	if fingerprint := fingerprintJSON(input.ToolInput); fingerprint != "" {
+		payload["toolInputFingerprint"] = fingerprint
+	}
+	if fingerprint := fingerprintJSON(input.ToolResponse); fingerprint != "" {
+		payload["toolResultFingerprint"] = fingerprint
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return events.Event{}, fmt.Errorf("encode hook evidence")
@@ -84,6 +92,22 @@ func NormalizeHook(raw json.RawMessage, receivedAt time.Time) (events.Event, err
 		return events.Event{}, fmt.Errorf("invalid normalized hook event")
 	}
 	return event, nil
+}
+
+func fingerprintJSON(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 func boundedLabel(value string) string {
