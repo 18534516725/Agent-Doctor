@@ -39,6 +39,16 @@ func TestStartOncePrintsLocalDashboardURLWithoutOpeningABrowser(t *testing.T) {
 	}
 }
 
+func TestStartOnceAllocatesCaptureProxyWhenUpstreamIsConfigured(t *testing.T) {
+	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
+	t.Setenv("AGENT_DOCTOR_UPSTREAM_URL", "https://example.test")
+	var out bytes.Buffer
+	code := Run([]string{"start", "--once"}, &out, io.Discard)
+	if code != 0 || !strings.Contains(out.String(), "proxy: http://127.0.0.1:") {
+		t.Fatalf("code=%d output=%q", code, out.String())
+	}
+}
+
 func TestDoctorJSONReportsLocalInstallationState(t *testing.T) {
 	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
 	var out bytes.Buffer

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -20,6 +22,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/installer"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
+	localproxy "github.com/18534516725/Agent-Doctor/internal/proxy"
 	localserver "github.com/18534516725/Agent-Doctor/internal/server"
 	"github.com/18534516725/Agent-Doctor/internal/storage"
 )
@@ -138,17 +141,61 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	url := "http://" + listener.Addr().String() + "/"
+	var proxyListener net.Listener
+	var proxyHTTPServer *http.Server
+	proxyURL := ""
+	if upstreamURL := strings.TrimSpace(os.Getenv("AGENT_DOCTOR_UPSTREAM_URL")); upstreamURL != "" {
+		proxyListener, err = (&net.ListenConfig{}).Listen(context.Background(), "tcp4", "127.0.0.1:0")
+		if err != nil {
+			_ = listener.Close()
+			fmt.Fprintln(stderr, "agent-doctor: capture proxy listener unavailable")
+			return 1
+		}
+		proxyHandler, proxyErr := localproxy.New(localproxy.Config{
+			UpstreamURL: upstreamURL, ListenAddress: proxyListener.Addr().String(), Store: database,
+			ClientName:    defaultString(os.Getenv("AGENT_DOCTOR_CLIENT"), "auto-detected"),
+			ClientVersion: os.Getenv("AGENT_DOCTOR_CLIENT_VERSION"),
+			ProjectID:     defaultString(os.Getenv("AGENT_DOCTOR_PROJECT_ID"), "local-project"),
+		})
+		if proxyErr != nil {
+			_ = listener.Close()
+			_ = proxyListener.Close()
+			fmt.Fprintln(stderr, "agent-doctor: capture proxy configuration invalid")
+			return 1
+		}
+		proxyHTTPServer = &http.Server{Handler: proxyHandler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
+		proxyURL = "http://" + proxyListener.Addr().String()
+	}
 	if once {
 		_ = listener.Close()
+		if proxyListener != nil {
+			_ = proxyListener.Close()
+		}
 		fmt.Fprintln(stdout, url)
+		if proxyURL != "" {
+			fmt.Fprintln(stdout, "proxy:", proxyURL)
+		}
 		return 0
 	}
 	fmt.Fprintln(stdout, "Agent Doctor is ready:", url)
+	if proxyURL != "" {
+		fmt.Fprintln(stdout, "Live capture proxy:", proxyURL)
+	}
 	fmt.Fprintln(stdout, "Open this local URL in your browser. Press Ctrl+C to stop.")
 	interrupt, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- service.Serve(listener) }()
+	if proxyHTTPServer != nil {
+		go func() {
+			if serveErr := proxyHTTPServer.Serve(proxyListener); serveErr != nil && serveErr != http.ErrServerClosed {
+				select {
+				case serveErrors <- serveErr:
+				default:
+				}
+			}
+		}()
+	}
 	select {
 	case <-interrupt.Done():
 		shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -156,6 +203,9 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 		if err := service.Shutdown(shutdownContext); err != nil {
 			fmt.Fprintln(stderr, "agent-doctor: dashboard shutdown incomplete")
 			return 1
+		}
+		if proxyHTTPServer != nil {
+			_ = proxyHTTPServer.Shutdown(shutdownContext)
 		}
 		return 0
 	case err := <-serveErrors:
@@ -165,6 +215,13 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func runDoctorJSON(stdout, stderr io.Writer) int {
