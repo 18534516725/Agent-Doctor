@@ -16,6 +16,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/guidance"
 	"github.com/18534516725/Agent-Doctor/internal/insights"
+	projectmemory "github.com/18534516725/Agent-Doctor/internal/memory"
 	"github.com/18534516725/Agent-Doctor/internal/realtime"
 )
 
@@ -52,6 +53,13 @@ type insightsStore interface {
 	RequestTrends(context.Context, int) (insights.RequestTrends, error)
 }
 
+type memoryStore interface {
+	CreateMemory(context.Context, string, projectmemory.CreateInput, time.Time) (projectmemory.Item, error)
+	ListMemories(context.Context, string, string) ([]projectmemory.Item, error)
+	UpdateMemory(context.Context, string, string, projectmemory.UpdateInput, time.Time) (projectmemory.Item, error)
+	DeleteMemory(context.Context, string, string, time.Time) error
+}
+
 func (server *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.dashboardHome)
@@ -67,6 +75,10 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/analysis/live", server.liveAnalysis)
 	mux.HandleFunc("GET /api/v1/insights/costs", server.costInsights)
 	mux.HandleFunc("GET /api/v1/insights/trends", server.requestTrends)
+	mux.HandleFunc("GET /api/v1/projects/{id}/memories", server.listMemories)
+	mux.HandleFunc("POST /api/v1/projects/{id}/memories", server.createMemory)
+	mux.HandleFunc("PATCH /api/v1/projects/{id}/memories/{memoryId}", server.updateMemory)
+	mux.HandleFunc("DELETE /api/v1/projects/{id}/memories/{memoryId}", server.deleteMemory)
 	mux.HandleFunc("GET /api/v1/guidance/active", server.activeGuidance)
 	mux.HandleFunc("GET /api/v1/projects/{id}/guidance", server.getGuidanceControlLevel)
 	mux.HandleFunc("PUT /api/v1/projects/{id}/guidance", server.putGuidanceControlLevel)
@@ -75,6 +87,80 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/settings/privacy", server.getPrivacy)
 	mux.HandleFunc("PUT /api/v1/settings/privacy", server.putPrivacy)
 	return securityHeaders(mux)
+}
+
+func (server *Server) memoryStore(response http.ResponseWriter) (memoryStore, bool) {
+	store, ok := server.store.(memoryStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "project memory unavailable")
+	}
+	return store, ok
+}
+func (server *Server) listMemories(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.memoryStore(response)
+	if !ok {
+		return
+	}
+	items, err := store.ListMemories(request.Context(), request.PathValue("id"), request.URL.Query().Get("state"))
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "project memory unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"items": items})
+}
+func (server *Server) createMemory(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.memoryStore(response)
+	if !ok {
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 20*1024)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var input projectmemory.CreateInput
+	if err := decoder.Decode(&input); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid memory")
+		return
+	}
+	item, err := store.CreateMemory(request.Context(), request.PathValue("id"), input, time.Now().UTC())
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid memory")
+		return
+	}
+	server.hub.Publish(realtime.Event{Kind: "memory.changed"})
+	writeJSON(response, http.StatusCreated, item)
+}
+func (server *Server) updateMemory(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.memoryStore(response)
+	if !ok {
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 20*1024)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var input projectmemory.UpdateInput
+	if err := decoder.Decode(&input); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid memory update")
+		return
+	}
+	item, err := store.UpdateMemory(request.Context(), request.PathValue("id"), request.PathValue("memoryId"), input, time.Now().UTC())
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid memory update")
+		return
+	}
+	server.hub.Publish(realtime.Event{Kind: "memory.changed"})
+	writeJSON(response, http.StatusOK, item)
+}
+func (server *Server) deleteMemory(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.memoryStore(response)
+	if !ok {
+		return
+	}
+	if err := store.DeleteMemory(request.Context(), request.PathValue("id"), request.PathValue("memoryId"), time.Now().UTC()); err != nil {
+		writeError(response, http.StatusNotFound, "memory not found")
+		return
+	}
+	server.hub.Publish(realtime.Event{Kind: "memory.changed"})
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (server *Server) costInsights(response http.ResponseWriter, request *http.Request) {

@@ -23,6 +23,7 @@ export type GuidanceStatus = { state: 'active' | 'observing' | 'stale' | 'unavai
 export type GuidanceFeed = { items: GuidanceDecision[]; status: GuidanceStatus };
 export type CostIntelligence = { days: number; usage: { inputTokens: number; cachedTokens: number; uncachedInputTokens: number; outputTokens: number; reasoningTokens: number; cacheRate: number }; cost: { currency: string; exactMicros: number; estimatedMicros: number; unknownRequests: number; availability: 'complete' | 'partial' | 'unavailable' }; rankings: { dimension: string; label: string; requests: number; uncachedInputTokens: number; outputTokens: number; exactMicros: number; unknownCosts: number }[]; unknown: { requestId: string; model: string; client: string; startedAt: string; provenance: string }[]; limitations: string[] };
 export type RequestTrends = { days: number; points: { date: string; requests: number; failed: number; failureRate: number; p50LatencyMs: number; p95LatencyMs: number; uncachedInputTokens: number; outputTokens: number; cachedTokens: number; cacheRate: number }[]; limitations: string[] };
+export type ProjectMemory = { id: string; projectId: string; content: string; state: 'candidate' | 'active' | 'disabled'; sourceKind: string; sourceId?: string; createdAt: string; updatedAt: string };
 
 export interface DashboardAPI {
   loadSummary(): Promise<Summary>;
@@ -37,6 +38,10 @@ export interface DashboardAPI {
   loadActiveGuidance(): Promise<GuidanceFeed>;
   loadCostIntelligence(days: 7 | 30): Promise<CostIntelligence>;
   loadRequestTrends(days: 7 | 30): Promise<RequestTrends>;
+  loadMemories(projectId: string, state?: string): Promise<ProjectMemory[]>;
+  createMemory(projectId: string, input: { content: string; sourceKind: string; sourceId?: string }): Promise<ProjectMemory>;
+  updateMemory(projectId: string, memoryId: string, input: { content?: string; state?: string }): Promise<ProjectMemory>;
+  deleteMemory(projectId: string, memoryId: string): Promise<void>;
   loadGuidanceControlLevel(projectId: string): Promise<{ controlLevel: ControlLevel }>;
   updateGuidanceControlLevel(projectId: string, controlLevel: ControlLevel): Promise<{ controlLevel: ControlLevel }>;
   deleteSession(id: string): Promise<void>;
@@ -64,6 +69,10 @@ export const localAPI: DashboardAPI = {
   loadActiveGuidance: () => request('/api/v1/guidance/active'),
   loadCostIntelligence: (days) => request(`/api/v1/insights/costs?days=${days}`),
   loadRequestTrends: (days) => request(`/api/v1/insights/trends?days=${days}`),
+  async loadMemories(projectId, state) { return (await request<{ items: ProjectMemory[] }>(`/api/v1/projects/${encodeURIComponent(projectId)}/memories${state ? `?state=${encodeURIComponent(state)}` : ''}`)).items; },
+  createMemory: (projectId, input) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/memories`, { method: 'POST', body: JSON.stringify(input) }),
+  updateMemory: (projectId, memoryId, input) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/memories/${encodeURIComponent(memoryId)}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  deleteMemory: (projectId, memoryId) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' }),
   loadGuidanceControlLevel: (projectId) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance`),
   updateGuidanceControlLevel: (projectId, controlLevel) => request(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance`, { method: 'PUT', body: JSON.stringify({ controlLevel }) }),
   deleteSession: (id) => request(`/api/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),

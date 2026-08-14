@@ -15,6 +15,7 @@ export function OverviewPage(props: PageProps) {
   const clientLabel = selected?.client.name || connections.find((item) => item.state === 'active')?.displayName || (locale === 'zh' ? '等待连接' : 'Awaiting client');
   const sessionLabel = current?.sessionId || selected?.sessionId || (locale === 'zh' ? '暂无活动任务' : 'No active task');
   const zh = locale === 'zh';
+  const saveMemory = async (message: import('../api').Message) => { if (!selected) return; await props.api.createMemory(selected.projectId, { content: message.content, sourceKind: 'conversation-message', sourceId: message.id }); props.refresh(); };
 
   return <div className="overview-grid">
     <div className="overview-main">
@@ -44,7 +45,7 @@ export function OverviewPage(props: PageProps) {
           {showRaw ? (zh ? '收起原始对话' : 'Hide transcript') : (zh ? '查看原始对话' : 'View raw transcript')}
         </button>
       </div>
-      {showRaw && <ConversationTimeline conversation={selected} locale={locale} />}
+      {showRaw && <ConversationTimeline conversation={selected} locale={locale} onSaveMemory={saveMemory} />}
     </div>
     <StatusRail connections={connections} locale={locale} />
   </div>;

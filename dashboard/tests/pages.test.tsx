@@ -14,6 +14,7 @@ const api: DashboardAPI = {
   loadActiveGuidance:vi.fn(async()=>({items:[],status:{state:'observing' as const,client:'codex',advice:true,enforcement:false,explanation:'observing',lastEvidenceAt:'2026-08-14T10:00:01Z'}})), loadGuidanceControlLevel:vi.fn(async()=>({controlLevel:'guide' as const})), updateGuidanceControlLevel:vi.fn(async(_projectId,controlLevel)=>({controlLevel})),
   loadCostIntelligence:vi.fn(async()=>({days:30,usage:{inputTokens:49_000_000,cachedTokens:10_000_000,uncachedInputTokens:39_000_000,outputTokens:795_296,reasoningTokens:3,cacheRate:20.4},cost:{currency:'USD',exactMicros:0,estimatedMicros:0,unknownRequests:1,availability:'unavailable' as const},rankings:[],unknown:[],limitations:['价格未知']})),
   loadRequestTrends:vi.fn(async()=>({days:30,points:[{date:'2026-08-14',requests:12,failed:2,failureRate:16.7,p50LatencyMs:1200,p95LatencyMs:8000,uncachedInputTokens:39_000_000,outputTokens:795_296,cachedTokens:10_000_000,cacheRate:20.4}],limitations:[]})),
+  loadMemories:vi.fn(async()=>[]),createMemory:vi.fn(async(_projectId,input)=>({id:'memory-1',projectId:'project-current',content:input.content,state:'candidate' as const,sourceKind:input.sourceKind,createdAt:'',updatedAt:''})),updateMemory:vi.fn(async(_projectId,memoryId,input)=>({id:memoryId,projectId:'project-current',content:input.content??'',state:(input.state??'candidate') as 'candidate'|'active'|'disabled',sourceKind:'manual',createdAt:'',updatedAt:''})),deleteMemory:vi.fn(async()=>undefined),
 };
 
 describe('Chinese-first live dashboard',()=>{

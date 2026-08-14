@@ -39,8 +39,8 @@ func TestOpenMigratesAndPersistsFilteredEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
-	if got := database.SchemaVersion(); got != 6 {
-		t.Fatalf("schema=%d want=6", got)
+	if got := database.SchemaVersion(); got != 7 {
+		t.Fatalf("schema=%d want=7", got)
 	}
 	if database.ReadOnly() {
 		t.Fatal("fresh database must be writable")
@@ -138,7 +138,7 @@ func TestFailedMigrationCreatesBackupAndEntersReadOnlyRecovery(t *testing.T) {
 		return time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	}
 	recovered, err := openWithMigrations(path, append(defaultMigrations(), migration{
-		version: 7,
+		version: 8,
 		name:    "broken",
 		sql:     "CREATE TABLE broken( INVALID SQL",
 	}), fixedNow)
