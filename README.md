@@ -152,11 +152,10 @@ documented client interface → sanitizer → local event contract → SQLite
 
 ## Limitations
 
-- Automatic setup currently owns only a marked Codex MCP block. Other tested
-  adapters are shipped as explicit templates/plugins so user configuration is
-  never silently rewritten.
-- Comparisons require at least 15 matched samples per cohort and never declare
-  an automatic winner.
+- `setup --all` owns only the documented Agent Doctor files/marked blocks for
+  Codex and Claude Code, creates backups, and is safe to run repeatedly.
+- Descriptive comparison starts with two captured sessions. A cohort-level
+  result still requires at least 15 matched samples and never invents a winner.
 - Agent Doctor does not read private client databases or bypass client
   permissions.
 - No public release or ranking claim is valid until the tagged GitHub workflow
