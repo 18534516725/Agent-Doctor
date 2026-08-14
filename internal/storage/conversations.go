@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -87,10 +88,33 @@ func (database *DB) SaveConversationRequest(ctx context.Context, record conversa
 			return fmt.Errorf("insert conversation message %q: %w", message.ID, err)
 		}
 	}
+	analysisPayload, err := json.Marshal(map[string]any{
+		"usage": record.Usage, "cost": record.Cost, "durationMs": record.DurationMS,
+		"firstByteMs": record.FirstByteMS, "statusCode": record.StatusCode,
+	})
+	if err != nil {
+		return fmt.Errorf("encode request analysis: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO analysis_snapshots(id, session_id, kind, payload_json, provenance, precision, created_at)
+		VALUES(?, ?, 'request-summary', ?, 'local-request-capture', ?, ?)
+		ON CONFLICT(id) DO UPDATE SET payload_json=excluded.payload_json, provenance=excluded.provenance,
+			precision=excluded.precision, created_at=excluded.created_at`,
+		"analysis-"+record.ID, record.SessionID, string(analysisPayload), record.Usage.Precision,
+		completedAnalysisTime(record).Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("upsert request analysis: %w", err)
+	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit conversation: %w", err)
 	}
 	return nil
+}
+
+func completedAnalysisTime(record conversations.Request) time.Time {
+	if record.CompletedAt != nil {
+		return record.CompletedAt.UTC()
+	}
+	return record.StartedAt.UTC()
 }
 
 func (database *DB) GetConversationRequest(ctx context.Context, requestID string) (conversations.Request, error) {

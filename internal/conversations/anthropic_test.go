@@ -48,3 +48,10 @@ func TestMissingUsageIsUnavailableNotZero(t *testing.T) {
 		t.Fatalf("unexpected usage: %+v", got.Usage)
 	}
 }
+
+func TestParseAnthropicResponsePreservesCompleteNonStreamingMessage(t *testing.T) {
+	got, err := ParseAnthropicResponse([]byte(`{"model":"claude-test","content":[{"type":"text","text":"完整回复"}],"usage":{"input_tokens":7,"output_tokens":4}}`))
+	if err != nil || len(got.Messages) != 1 || got.Messages[0].Content != "完整回复" || got.Usage.OutputTokens == nil || *got.Usage.OutputTokens != 4 {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+}

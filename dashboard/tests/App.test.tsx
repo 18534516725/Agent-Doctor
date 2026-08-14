@@ -1,12 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-
+import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/App';
-
-describe('App', () => {
-  it('renders the local-only product identity', () => {
-    render(<App />);
-    expect(screen.getByRole('heading', { name: /Agent Doctor/i })).toBeInTheDocument();
-    expect(screen.getByText(/stored on this device/i)).toBeInTheDocument();
-  });
-});
+afterEach(()=>window.localStorage.clear());
+describe('App',()=>{it('renders the local product identity without fake zero cards',()=>{render(<App/>);expect(screen.getAllByText('Agent Doctor').length).toBeGreaterThan(0);expect(screen.getByText('正在读取本地数据…')).toBeInTheDocument();expect(screen.queryByText('0 events')).not.toBeInTheDocument();});});

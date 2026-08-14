@@ -38,6 +38,58 @@ func ParseOpenAIRequest(body []byte) (ParsedConversation, error) {
 	return result, nil
 }
 
+func ParseOpenAIResponse(body []byte) (ParsedConversation, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ParsedConversation{}, fmt.Errorf("decode OpenAI response: %w", err)
+	}
+	result := ParsedConversation{Messages: []Message{}, Usage: unavailableUsage("provider-response")}
+	if model, ok := raw["model"].(string); ok {
+		result.Model = model
+	}
+	if choices, ok := raw["choices"].([]any); ok {
+		for _, rawChoice := range choices {
+			choice, _ := rawChoice.(map[string]any)
+			message, _ := choice["message"].(map[string]any)
+			if text := stringContent(message["content"]); text != "" {
+				result.Messages = append(result.Messages, Message{Role: "assistant", Content: text})
+			}
+			appendOpenAITools(&result.Messages, message["tool_calls"])
+		}
+	}
+	if output, ok := raw["output"].([]any); ok {
+		for _, rawItem := range output {
+			item, _ := rawItem.(map[string]any)
+			kind, _ := item["type"].(string)
+			if kind == "function_call" {
+				name, _ := item["name"].(string)
+				arguments, _ := item["arguments"].(string)
+				result.Messages = append(result.Messages, Message{Role: "tool", ToolName: name, ToolPayloadJSON: arguments})
+			} else if text := stringContent(item["content"]); text != "" {
+				result.Messages = append(result.Messages, Message{Role: "assistant", Content: text})
+			}
+		}
+	}
+	if usage, ok := raw["usage"].(map[string]any); ok {
+		assembler := NewOpenAIStreamAssembler(1)
+		assembler.captureUsage(usage)
+		assembler.usage.Provenance = "provider-response"
+		result.Usage = assembler.usage
+	}
+	return result, nil
+}
+
+func appendOpenAITools(messages *[]Message, value any) {
+	calls, _ := value.([]any)
+	for _, rawCall := range calls {
+		call, _ := rawCall.(map[string]any)
+		function, _ := call["function"].(map[string]any)
+		name, _ := function["name"].(string)
+		arguments, _ := function["arguments"].(string)
+		*messages = append(*messages, Message{Role: "tool", ToolName: name, ToolPayloadJSON: arguments})
+	}
+}
+
 func appendOpenAIInput(messages *[]Message, input any) {
 	if text, ok := input.(string); ok {
 		*messages = append(*messages, Message{Role: "user", Content: text})

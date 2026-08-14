@@ -49,6 +49,23 @@ func TestStartOnceAllocatesCaptureProxyWhenUpstreamIsConfigured(t *testing.T) {
 	}
 }
 
+func TestCaptureUpstreamPrefersExplicitAgentDoctorConfiguration(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "https://anthropic.example")
+	t.Setenv("OPENAI_BASE_URL", "https://openai.example")
+	t.Setenv("AGENT_DOCTOR_UPSTREAM_URL", "https://explicit.example")
+	if got := captureUpstreamURL(); got != "https://explicit.example" {
+		t.Fatalf("captureUpstreamURL()=%q", got)
+	}
+}
+
+func TestOverriddenEnvironmentDoesNotDuplicateBaseURL(t *testing.T) {
+	environment := overriddenEnvironment([]string{"PATH=/bin", "OPENAI_BASE_URL=https://old.example"}, map[string]string{"OPENAI_BASE_URL": "http://127.0.0.1:4321"})
+	joined := strings.Join(environment, "\n")
+	if strings.Count(joined, "OPENAI_BASE_URL=") != 1 || !strings.Contains(joined, "OPENAI_BASE_URL=http://127.0.0.1:4321") {
+		t.Fatalf("environment=%q", environment)
+	}
+}
+
 func TestDoctorJSONReportsLocalInstallationState(t *testing.T) {
 	t.Setenv("AGENT_DOCTOR_CONFIG_DIR", t.TempDir())
 	var out bytes.Buffer

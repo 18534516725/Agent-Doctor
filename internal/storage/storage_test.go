@@ -37,8 +37,8 @@ func TestOpenMigratesAndPersistsFilteredEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
-	if got := database.SchemaVersion(); got != 4 {
-		t.Fatalf("schema=%d want=4", got)
+	if got := database.SchemaVersion(); got != 5 {
+		t.Fatalf("schema=%d want=5", got)
 	}
 	if database.ReadOnly() {
 		t.Fatal("fresh database must be writable")
@@ -136,7 +136,7 @@ func TestFailedMigrationCreatesBackupAndEntersReadOnlyRecovery(t *testing.T) {
 		return time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	}
 	recovered, err := openWithMigrations(path, append(defaultMigrations(), migration{
-		version: 5,
+		version: 6,
 		name:    "broken",
 		sql:     "CREATE TABLE broken( INVALID SQL",
 	}), fixedNow)
@@ -172,7 +172,7 @@ func TestInitialSchemaContainsEveryCoreTable(t *testing.T) {
 		"git_snapshots", "validations", "usage_records", "cost_records", "quota_snapshots",
 		"memories", "context_capsules", "diagnoses", "comparisons", "replays", "consents",
 		"price_catalog_versions", "exchange_rate_versions",
-		"model_requests", "conversation_messages", "client_connections", "analysis_snapshots",
+		"model_requests", "conversation_messages", "client_connections", "analysis_snapshots", "privacy_settings",
 	}
 	for _, table := range want {
 		var count int
@@ -182,6 +182,28 @@ func TestInitialSchemaContainsEveryCoreTable(t *testing.T) {
 		if err != nil || count != 1 {
 			t.Fatalf("table %s missing: count=%d err=%v", table, count, err)
 		}
+	}
+}
+
+func TestPrivacySettingsPersistAcrossDatabaseReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "doctor.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := conversations.PrivacySettings{CapturePrompts: true, CaptureFileContents: true, RetentionDays: 45}
+	if err := database.SavePrivacySettings(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	_ = database.Close()
+	database, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	got, err := database.PrivacySettings(context.Background())
+	if err != nil || got != want {
+		t.Fatalf("settings=%+v err=%v", got, err)
 	}
 }
 
@@ -211,6 +233,10 @@ func TestConversationRoundTripPreservesCompleteMessagesAndUsage(t *testing.T) {
 	}
 	if err := database.SaveConversationRequest(context.Background(), record); err != nil {
 		t.Fatal(err)
+	}
+	var analysisCount int
+	if err := database.sql.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM analysis_snapshots WHERE session_id=?", record.SessionID).Scan(&analysisCount); err != nil || analysisCount != 1 {
+		t.Fatalf("analysis snapshots=%d err=%v", analysisCount, err)
 	}
 
 	got, err := database.GetConversationRequest(context.Background(), record.ID)

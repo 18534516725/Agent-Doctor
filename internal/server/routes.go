@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
@@ -34,20 +33,13 @@ type ConversationStore interface {
 	DeleteConversationSession(context.Context, string) error
 }
 
-type privacySettings struct {
-	CapturePrompts      bool `json:"capturePrompts"`
-	CaptureFileContents bool `json:"captureFileContents"`
-	RetentionDays       int  `json:"retentionDays"`
-}
-
-type settingsState struct {
-	mu      sync.RWMutex
-	privacy privacySettings
+type privacyStore interface {
+	PrivacySettings(context.Context) (conversations.PrivacySettings, error)
+	SavePrivacySettings(context.Context, conversations.PrivacySettings) error
 }
 
 func (server *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	settings := &settingsState{privacy: privacySettings{RetentionDays: 30}}
 	mux.HandleFunc("GET /", server.dashboardHome)
 	mux.HandleFunc("GET /assets/", server.dashboardAsset)
 	mux.HandleFunc("GET /health", server.health)
@@ -61,8 +53,8 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/analysis/live", server.liveAnalysis)
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", server.deleteConversationSession)
 	mux.HandleFunc("GET /api/v1/sessions/", server.sessionDetails)
-	mux.HandleFunc("GET /api/v1/settings/privacy", settings.getPrivacy)
-	mux.HandleFunc("PUT /api/v1/settings/privacy", settings.putPrivacy)
+	mux.HandleFunc("GET /api/v1/settings/privacy", server.getPrivacy)
+	mux.HandleFunc("PUT /api/v1/settings/privacy", server.putPrivacy)
 	return securityHeaders(mux)
 }
 
@@ -283,25 +275,38 @@ func (server *Server) sessionDetails(response http.ResponseWriter, request *http
 	writeJSON(response, http.StatusOK, map[string]any{"sessionId": sessionID, "events": evidence})
 }
 
-func (state *settingsState) getPrivacy(response http.ResponseWriter, _ *http.Request) {
-	state.mu.RLock()
-	settings := state.privacy
-	state.mu.RUnlock()
+func (server *Server) getPrivacy(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.store.(privacyStore)
+	if !ok {
+		writeJSON(response, http.StatusOK, conversations.PrivacySettings{CapturePrompts: true, RetentionDays: 30})
+		return
+	}
+	settings, err := store.PrivacySettings(request.Context())
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "privacy settings unavailable")
+		return
+	}
 	writeJSON(response, http.StatusOK, settings)
 }
 
-func (state *settingsState) putPrivacy(response http.ResponseWriter, request *http.Request) {
+func (server *Server) putPrivacy(response http.ResponseWriter, request *http.Request) {
 	request.Body = http.MaxBytesReader(response, request.Body, 16*1024)
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
-	var settings privacySettings
+	var settings conversations.PrivacySettings
 	if err := decoder.Decode(&settings); err != nil || settings.RetentionDays < 1 || settings.RetentionDays > 3650 {
 		writeError(response, http.StatusBadRequest, "invalid privacy settings")
 		return
 	}
-	state.mu.Lock()
-	state.privacy = settings
-	state.mu.Unlock()
+	store, ok := server.store.(privacyStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "privacy settings storage unavailable")
+		return
+	}
+	if err := store.SavePrivacySettings(request.Context(), settings); err != nil {
+		writeError(response, http.StatusServiceUnavailable, "privacy settings unavailable")
+		return
+	}
 	writeJSON(response, http.StatusOK, settings)
 }
 

@@ -1,0 +1,2 @@
+import type { PageProps } from './types';
+export function ComparisonPage({ locale, snapshot }: PageProps) { return <div className="comparison-panel"><span>COHORT / 15+</span><strong>{snapshot.comparisonCount}</strong><h2>{locale === 'zh' ? '可用匹配对比' : 'Matched comparisons'}</h2><p>{locale === 'zh' ? '只有项目、任务类型和主要版本一致时才进入比较；样本不足时明确显示不足，不制造结论。' : 'Only matched project, task type and major version cohorts are compared. Insufficient samples remain explicit.'}</p></div>; }

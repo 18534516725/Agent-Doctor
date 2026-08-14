@@ -76,3 +76,9 @@ type LiveAnalysis struct {
 	AverageLatencyMS    float64  `json:"averageLatencyMs"`
 	Limitations         []string `json:"limitations"`
 }
+
+type PrivacySettings struct {
+	CapturePrompts      bool `json:"capturePrompts"`
+	CaptureFileContents bool `json:"captureFileContents"`
+	RetentionDays       int  `json:"retentionDays"`
+}

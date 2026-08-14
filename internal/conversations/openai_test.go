@@ -60,3 +60,10 @@ func TestOpenAIAssemblerRejectsOversizedCapture(t *testing.T) {
 		t.Fatal("expected bounded capture error")
 	}
 }
+
+func TestParseOpenAIResponsePreservesCompleteNonStreamingMessage(t *testing.T) {
+	got, err := ParseOpenAIResponse([]byte(`{"model":"gpt-test","choices":[{"message":{"role":"assistant","content":"完整回复"}}],"usage":{"prompt_tokens":8,"completion_tokens":3}}`))
+	if err != nil || len(got.Messages) != 1 || got.Messages[0].Content != "完整回复" || got.Usage.OutputTokens == nil || *got.Usage.OutputTokens != 3 {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+}

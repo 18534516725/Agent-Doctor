@@ -1,6 +1,6 @@
 # 使用 Agent Doctor
 
-Agent Doctor 是本地优先的 AI 编程任务诊断工具：它不上传完整对话、源码、命令参数、文件路径或凭证。它会把已验证的本地生命周期事件转成可解释的任务证据，并通过 MCP 提供给 AI 编程工具。
+Agent Doctor 是本地优先的 AI 编程任务诊断工具：完整模型对话只写入当前电脑的 SQLite，不上传；API Key、Authorization、Cookie、请求头、源码和文件内容不会写入数据库。它会把本地对话和生命周期事件转成可解释的任务证据。
 
 ## 当前可实际使用的链路
 
@@ -23,6 +23,15 @@ go build -o ./bin/agent-doctor ./cmd/agent-doctor
 ./bin/agent-doctor setup --json
 ./bin/agent-doctor start --no-open
 ```
+
+保持仪表盘运行后，在另一个终端通过安全包装器启动正在使用的客户端：
+
+```bash
+./bin/agent-doctor run -- codex
+# 或 ./bin/agent-doctor run -- claude
+```
+
+包装器复用当前终端已有的 `OPENAI_BASE_URL`、`ANTHROPIC_BASE_URL`，也可显式设置 `AGENT_DOCTOR_UPSTREAM_URL`。它只向子进程注入本地代理地址，不会改写全局配置或保存认证凭证。已经运行的编辑器无法被系统安全地“强行附加”，需要从包装器启动一次。
 
 Claude Code hook 调用的二进制必须在 `PATH` 中。hook 数据默认存储在系统用户配置目录下的 `AgentDoctor/doctor.db`，数据库文件权限为仅当前用户可读写。
 
@@ -47,6 +56,6 @@ get_task_evidence({"sessionId":"…"})
 
 - 没有兼容数据时，显示“不可用”，不显示 0，也不猜测费用或额度。
 - 需要执行验证命令时，必须由用户明确批准命令；Agent Doctor 不替用户执行项目命令。
-- 本地统计只返回聚合计数，仪表盘和 MCP 都不会读取完整 prompt、源码、凭证或上游供应信息。
+- 私有仪表盘可以读取本机 SQLite 中的完整模型对话；MCP 与导出接口只返回安全证据和聚合，不返回完整对话、源码、凭证或传输头。
 - `export --json` 仅导出安全聚合；`forget --yes --json` 删除本地数据库；`uninstall --yes --json` 只删除 Agent Doctor 自己的 Codex 配置块。
 - `pause --json` 会在本机持久暂停生命周期采集；`pause --resume --json` 才会重新启用。

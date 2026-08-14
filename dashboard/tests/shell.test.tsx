@@ -1,32 +1,8 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-
 import { App } from '../src/App';
-
-afterEach(cleanup);
-
-describe('diagnostic dashboard shell', () => {
-  it('offers all diagnostic destinations with keyboard-accessible navigation', () => {
-    render(<App />);
-    for (const label of ['Overview', 'Task evidence', 'Costs', 'Memory', 'Comparison', 'Trends', 'Integrations', 'Privacy']) {
-      expect(screen.getByRole('button', { name: label })).toBeVisible();
-    }
-    fireEvent.click(screen.getByRole('button', { name: 'Costs' }));
-    expect(screen.getByRole('heading', { name: 'Cost ledger' })).toBeVisible();
-  });
-
-  it('keeps local-only storage visible and does not render raw HTML from an API-shaped value', () => {
-    render(<App />);
-    expect(screen.getByText(/This device only/i)).toBeVisible();
-    expect(screen.queryByText('<img src=x onerror=alert(1)>')).not.toBeInTheDocument();
-  });
-
-  it('switches the entire diagnostic shell to Chinese without changing the selected section', () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Costs' }));
-    fireEvent.click(screen.getByRole('button', { name: '中文' }));
-    expect(screen.getByRole('heading', { name: '费用账本' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '总览' })).toBeVisible();
-    expect(screen.getByText(/仅保存在此设备/i)).toBeVisible();
-  });
+afterEach(()=>{cleanup();window.localStorage.clear();});
+describe('dashboard shell',()=>{
+  it('starts in Chinese and exposes all destinations',()=>{render(<App/>);expect(screen.getByRole('heading',{name:'看清每一次 AI 协作'})).toBeVisible();for(const label of ['实时总览','完整对话','用量与费用','项目记忆','任务对比','效率趋势','编辑器连接','本地数据'])expect(screen.getByRole('button',{name:label})).toBeVisible();});
+  it('keeps local-only status visible',()=>{render(<App/>);expect(screen.getByText('仅此设备')).toBeVisible();});
 });

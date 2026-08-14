@@ -24,6 +24,14 @@ type ConversationStore interface {
 	SaveConversationRequest(context.Context, conversations.Request) error
 }
 
+type connectionStore interface {
+	UpsertClientConnection(context.Context, conversations.ClientConnection) error
+}
+
+type privacyStore interface {
+	PrivacySettings(context.Context) (conversations.PrivacySettings, error)
+}
+
 type Config struct {
 	UpstreamURL       string
 	ListenAddress     string
@@ -133,12 +141,16 @@ func (server *Server) serveHTTP(response http.ResponseWriter, incoming *http.Req
 	copyResponseHeaders(response.Header(), upstreamResponse.Header)
 	response.WriteHeader(upstreamResponse.StatusCode)
 
+	isStream := strings.Contains(strings.ToLower(upstreamResponse.Header.Get("Content-Type")), "text/event-stream")
 	var openAI *conversations.OpenAIStreamAssembler
 	var anthropic *conversations.AnthropicStreamAssembler
-	if protocol == "anthropic" {
-		anthropic = conversations.NewAnthropicStreamAssembler(server.captureLimit)
-	} else {
-		openAI = conversations.NewOpenAIStreamAssembler(server.captureLimit)
+	var responseCapture bytes.Buffer
+	if isStream {
+		if protocol == "anthropic" {
+			anthropic = conversations.NewAnthropicStreamAssembler(server.captureLimit)
+		} else {
+			openAI = conversations.NewOpenAIStreamAssembler(server.captureLimit)
+		}
 	}
 	captureEnabled := true
 	buffer := make([]byte, 32*1024)
@@ -147,10 +159,16 @@ func (server *Server) serveHTTP(response http.ResponseWriter, incoming *http.Req
 		if count > 0 {
 			chunk := buffer[:count]
 			if captureEnabled {
-				if protocol == "anthropic" {
-					captureEnabled = anthropic.Add(chunk) == nil
+				if isStream {
+					if protocol == "anthropic" {
+						captureEnabled = anthropic.Add(chunk) == nil
+					} else {
+						captureEnabled = openAI.Add(chunk) == nil
+					}
+				} else if responseCapture.Len()+len(chunk) <= server.captureLimit {
+					_, _ = responseCapture.Write(chunk)
 				} else {
-					captureEnabled = openAI.Add(chunk) == nil
+					captureEnabled = false
 				}
 			}
 			if _, writeErr := response.Write(chunk); writeErr != nil {
@@ -170,10 +188,16 @@ func (server *Server) serveHTTP(response http.ResponseWriter, incoming *http.Req
 	completed := time.Now().UTC()
 	parsedResponse := conversations.ParsedConversation{Usage: conversations.Usage{Precision: "unavailable", Provenance: "provider-response"}}
 	if captureEnabled {
-		if protocol == "anthropic" {
-			parsedResponse, _ = anthropic.Complete()
+		if isStream {
+			if protocol == "anthropic" {
+				parsedResponse, _ = anthropic.Complete()
+			} else {
+				parsedResponse, _ = openAI.Complete()
+			}
+		} else if protocol == "anthropic" {
+			parsedResponse, _ = conversations.ParseAnthropicResponse(responseCapture.Bytes())
 		} else {
-			parsedResponse, _ = openAI.Complete()
+			parsedResponse, _ = conversations.ParseOpenAIResponse(responseCapture.Bytes())
 		}
 	}
 	server.persist(incoming.Context(), parsedRequest, parsedResponse, protocol, incoming.Method, incoming.URL.Path, upstreamResponse.StatusCode, started, firstByte, completed)
@@ -184,6 +208,11 @@ func (server *Server) persist(ctx context.Context, requestPart, responsePart con
 	sessionID := randomID("session")
 	messages := append([]conversations.Message{}, requestPart.Messages...)
 	messages = append(messages, responsePart.Messages...)
+	if settings, ok := server.store.(privacyStore); ok {
+		if privacy, err := settings.PrivacySettings(context.WithoutCancel(ctx)); err == nil && !privacy.CapturePrompts {
+			messages = nil
+		}
+	}
 	for index := range messages {
 		messages[index].ID = randomID("msg")
 		messages[index].RequestID = requestID
@@ -209,8 +238,17 @@ func (server *Server) persist(ctx context.Context, requestPart, responsePart con
 		Method: method, Path: path, StatusCode: status, StartedAt: started, CompletedAt: &completed,
 		FirstByteMS: firstByte.Sub(started).Milliseconds(), DurationMS: completed.Sub(started).Milliseconds(),
 		Usage: responsePart.Usage, Cost: cost, Messages: messages}
-	if err := server.store.SaveConversationRequest(context.WithoutCancel(ctx), record); err == nil && server.onCommitted != nil {
-		server.onCommitted(sessionID)
+	if err := server.store.SaveConversationRequest(context.WithoutCancel(ctx), record); err == nil {
+		if connections, ok := server.store.(connectionStore); ok {
+			heartbeat := completed
+			_ = connections.UpsertClientConnection(context.WithoutCancel(ctx), conversations.ClientConnection{
+				Key: server.clientName, DisplayName: server.clientName, Detected: true, State: "active",
+				Capability: "loopback-proxy", Detail: "正在实时采集模型调用", LastHeartbeatAt: &heartbeat, UpdatedAt: completed,
+			})
+		}
+		if server.onCommitted != nil {
+			server.onCommitted(sessionID)
+		}
 	}
 }
 

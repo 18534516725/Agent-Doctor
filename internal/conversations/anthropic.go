@@ -27,6 +27,37 @@ func ParseAnthropicRequest(body []byte) (ParsedConversation, error) {
 	return result, nil
 }
 
+func ParseAnthropicResponse(body []byte) (ParsedConversation, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ParsedConversation{}, fmt.Errorf("decode Anthropic response: %w", err)
+	}
+	result := ParsedConversation{Messages: []Message{}, Usage: unavailableUsage("provider-response")}
+	if model, ok := raw["model"].(string); ok {
+		result.Model = model
+	}
+	if content, ok := raw["content"].([]any); ok {
+		for _, rawBlock := range content {
+			block, _ := rawBlock.(map[string]any)
+			kind, _ := block["type"].(string)
+			if kind == "tool_use" {
+				name, _ := block["name"].(string)
+				encoded, _ := json.Marshal(block["input"])
+				result.Messages = append(result.Messages, Message{Role: "tool", ToolName: name, ToolPayloadJSON: string(encoded)})
+			} else if text, _ := block["text"].(string); text != "" {
+				result.Messages = append(result.Messages, Message{Role: "assistant", Content: text})
+			}
+		}
+	}
+	if usage, ok := raw["usage"].(map[string]any); ok {
+		assembler := NewAnthropicStreamAssembler(1)
+		assembler.captureUsage(usage)
+		assembler.usage.Provenance = "provider-response"
+		result.Usage = assembler.usage
+	}
+	return result, nil
+}
+
 type anthropicBlock struct {
 	kind, name string
 	text       strings.Builder

@@ -5,9 +5,16 @@ address, requires a fresh 256-bit session token for APIs, rejects foreign
 origins, denies framing, sends `no-referrer`, and does not load remote dashboard
 assets.
 
-## Not captured by default
+## Local full-conversation mode
 
-- complete prompts and transcripts;
+When a client is started through the loopback capture proxy, Agent Doctor stores
+its complete user, assistant, system, and tool messages in the local SQLite
+database. This is what powers the private conversation timeline. It never
+uploads those messages and never exposes them through aggregate exports or MCP
+evidence tools.
+
+The following transport and machine secrets are never persisted:
+
 - source or file contents;
 - command arguments and working-directory paths;
 - API keys, authorization headers, cookies, or credentials;
@@ -19,8 +26,9 @@ evidence returns event ID, time, type, provenance, and precision—not payloads.
 
 ## Controls
 
-The Privacy dashboard controls prompt/file-content flags and retention period.
-Both sensitive flags default to off. `agent-doctor export --json` exports safe
+The Privacy dashboard controls message/file-content flags and retention period.
+Complete model messages default to on; file-content capture defaults to off.
+These settings persist in SQLite. `agent-doctor export --json` exports safe
 aggregates. `agent-doctor forget --yes --json` removes only the local database
 and its SQLite sidecar files.
 

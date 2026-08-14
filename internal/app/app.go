@@ -19,6 +19,7 @@ import (
 
 	"github.com/18534516725/Agent-Doctor/internal/adapters/claudecode"
 	"github.com/18534516725/Agent-Doctor/internal/adapters/cline"
+	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/installer"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
@@ -130,6 +131,7 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer database.Close()
+	recordDetectedClients(database)
 	service, err := localserver.New(localserver.Config{Version: Version, Store: database})
 	if err != nil {
 		fmt.Fprintln(stderr, "agent-doctor: local dashboard unavailable")
@@ -144,7 +146,7 @@ func runLocalDashboard(args []string, stdout, stderr io.Writer) int {
 	var proxyListener net.Listener
 	var proxyHTTPServer *http.Server
 	proxyURL := ""
-	if upstreamURL := strings.TrimSpace(os.Getenv("AGENT_DOCTOR_UPSTREAM_URL")); upstreamURL != "" {
+	if upstreamURL := captureUpstreamURL(); upstreamURL != "" {
 		proxyListener, err = (&net.ListenConfig{}).Listen(context.Background(), "tcp4", "127.0.0.1:0")
 		if err != nil {
 			_ = listener.Close()
@@ -223,6 +225,39 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func recordDetectedClients(database *storage.DB) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	clients, err := installer.DetectClients(home, runtime.GOOS)
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	for _, client := range clients {
+		state, detail := "unavailable", "未检测到本机配置"
+		if client.Detected {
+			state, detail = "detected", "已检测到客户端，等待实时调用"
+		}
+		_ = database.UpsertClientConnection(context.Background(), conversations.ClientConnection{
+			Key: client.ID, DisplayName: client.Name, Detected: client.Detected, State: state,
+			Capability: clientCapability(client.ID), Detail: detail, UpdatedAt: now,
+		})
+	}
+}
+
+func clientCapability(clientID string) string {
+	switch clientID {
+	case "codex", "claude-code", "cursor", "windsurf", "cline", "roo-code", "continue", "opencode", "cherry-studio":
+		return "MCP / 本地代理"
+	case "aider":
+		return "安全命令包装器"
+	default:
+		return "本地代理"
+	}
 }
 
 func runDoctorJSON(stdout, stderr io.Writer) int {
@@ -405,8 +440,53 @@ func runWrapped(args []string, input io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	argv := args[separator+1:]
+	upstreamURL := captureUpstreamURL()
+	if upstreamURL == "" {
+		fmt.Fprintln(stderr, "agent-doctor: 未找到当前模型 API 地址；命令会正常启动，但实时模型对话暂不采集")
+		return runCommand(argv, input, stdout, stderr, nil)
+	}
+	database, err := openLocalStore()
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: local database unavailable")
+		return 1
+	}
+	defer database.Close()
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		fmt.Fprintln(stderr, "agent-doctor: capture proxy listener unavailable")
+		return 1
+	}
+	clientName := filepath.Base(argv[0])
+	handler, err := localproxy.New(localproxy.Config{
+		UpstreamURL: upstreamURL, ListenAddress: listener.Addr().String(), Store: database,
+		ClientName: clientName, ProjectID: defaultString(os.Getenv("AGENT_DOCTOR_PROJECT_ID"), filepath.Base(currentDirectory())),
+	})
+	if err != nil {
+		_ = listener.Close()
+		fmt.Fprintln(stderr, "agent-doctor: capture proxy configuration invalid")
+		return 1
+	}
+	proxyServer := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second}
+	go func() { _ = proxyServer.Serve(listener) }()
+	proxyURL := "http://" + listener.Addr().String()
+	fmt.Fprintf(stderr, "agent-doctor: 已连接 %s，模型对话将实时保存到本机 SQLite\n", clientName)
+	code := runCommand(argv, input, stdout, stderr, map[string]string{
+		"OPENAI_BASE_URL":     proxyURL,
+		"ANTHROPIC_BASE_URL":  proxyURL,
+		"AGENT_DOCTOR_CLIENT": clientName,
+	})
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = proxyServer.Shutdown(shutdownContext)
+	return code
+}
+
+func runCommand(argv []string, input io.Reader, stdout, stderr io.Writer, overrides map[string]string) int {
 	command := exec.Command(argv[0], argv[1:]...)
 	command.Stdin, command.Stdout, command.Stderr = input, stdout, stderr
+	if len(overrides) > 0 {
+		command.Env = overriddenEnvironment(os.Environ(), overrides)
+	}
 	if err := command.Run(); err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
@@ -416,6 +496,37 @@ func runWrapped(args []string, input io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func captureUpstreamURL() string {
+	for _, key := range []string{"AGENT_DOCTOR_UPSTREAM_URL", "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func overriddenEnvironment(base []string, overrides map[string]string) []string {
+	result := make([]string, 0, len(base)+len(overrides))
+	for _, item := range base {
+		key := strings.SplitN(item, "=", 2)[0]
+		if _, replaced := overrides[key]; !replaced {
+			result = append(result, item)
+		}
+	}
+	for key, value := range overrides {
+		result = append(result, key+"="+value)
+	}
+	return result
+}
+
+func currentDirectory() string {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return "local-project"
+	}
+	return workingDirectory
 }
 
 func encodeJSON(stdout, stderr io.Writer, value any) int {

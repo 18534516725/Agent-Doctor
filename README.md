@@ -1,12 +1,12 @@
 # Agent Doctor
 
-**Local evidence, context memory, and cost analytics for AI coding agents.**
+**Local live conversations, evidence, context memory, and cost analytics for AI coding agents.**
 
 Agent Doctor explains why a coding task became slow, expensive, repetitive, or
-unreliable. It combines sanitized lifecycle events, Git state, explicitly
-approved validations, cost evidence, and your own local history. It does not
-need a transcript to be useful, and missing data stays **unavailable** instead
-of becoming a fabricated zero.
+unreliable. It combines complete model conversations captured through its
+loopback proxy, lifecycle events, Git state, validations, usage, cost evidence,
+and local history. Missing data stays **unavailable** instead of becoming a
+fabricated zero.
 
 ## 60-second local start
 
@@ -23,6 +23,20 @@ go build -o ./bin/agent-doctor ./cmd/agent-doctor
 Open the printed `http://127.0.0.1:<random-port>/` URL yourself. Agent Doctor
 never binds a public interface. The dashboard includes Overview, Task evidence,
 Costs, Memory, Comparison, Trends, Integrations, and Privacy.
+
+The simplest live capture path reuses the API base URL already configured in
+your terminal and injects the local proxy only into the child process:
+
+```bash
+agent-doctor start --no-open                    # keep the dashboard running
+agent-doctor run -- codex                       # start Codex with live capture
+# or: agent-doctor run -- claude
+```
+
+`AGENT_DOCTOR_UPSTREAM_URL` has priority when a client does not expose its
+configured base URL through `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`. A client
+that was already running must be restarted through the wrapper; Agent Doctor
+does not attach to arbitrary existing processes or rewrite credentials.
 
 After v1.0.0 is published, the verified installers will be:
 
@@ -68,7 +82,7 @@ visible limitations.
 | `agent-doctor pause --resume --json` | Resume local lifecycle capture |
 | `agent-doctor export --json` | Export sanitized aggregates, never event payloads |
 | `agent-doctor forget --yes --json` | Delete the local Agent Doctor database |
-| `agent-doctor run -- <command>` | Run an argv-safe wrapped command without a shell |
+| `agent-doctor run -- <command>` | Start a client through the local capture proxy without shell evaluation |
 | `agent-doctor uninstall --yes --json` | Remove only Agent Doctor-owned Codex config |
 | `agent-doctor version` | Print the installed version |
 
@@ -92,11 +106,12 @@ requires a versioned rate. Read the [cost methodology](docs/cost-methodology.md)
 ## Local privacy
 
 The SQLite database lives in the current user's configuration directory with
-user-only permissions. Raw prompts, source files, command text, credentials,
-cookies, headers, internal providers, and complete transcripts are not required
-or returned by dashboard aggregate APIs. Replay is disabled until the user
-approves the exact hashed plan, base commit, commands, call limit, and cost
-limit. Read the [privacy model](docs/privacy.md).
+user-only permissions. When live capture is enabled, complete user, assistant,
+system, and tool messages are stored locally so the owner can inspect the real
+conversation. API keys, Authorization headers, cookies, and transport headers
+are forwarded in memory and never written to SQLite. Replay is disabled until
+the user approves the exact hashed plan, base commit, commands, call limit, and
+cost limit. Read the [privacy model](docs/privacy.md).
 
 ## Architecture
 
