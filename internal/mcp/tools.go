@@ -38,6 +38,7 @@ type toolDefinition struct {
 }
 
 var readOnlyTools = []toolDefinition{
+	newTool("get_project_analysis", "Project analysis", "Get the current local project health, risks, cost coverage, efficiency findings, and recommended next actions before answering the user.", map[string]string{}, nil),
 	newTool("get_context_capsule", "Context capsule", "Get a token-bounded, provenance-labelled context capsule for the current project.", map[string]string{"projectId": "string", "currentFile": "string", "budget": "number"}, []string{"projectId"}),
 	newTool("diagnose_last_task", "Diagnose last task", "Diagnose the latest captured task using sanitized local evidence.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),
 	newTool("get_task_evidence", "Task evidence", "Get the bounded evidence timeline for one captured task.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),

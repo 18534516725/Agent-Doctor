@@ -40,7 +40,7 @@ func TestStdioInitializeAndToolList(t *testing.T) {
 		t.Fatalf("tools=%T", listed["tools"])
 	}
 	want := []string{
-		"get_context_capsule", "diagnose_last_task", "get_task_evidence", "compare_clients",
+		"get_project_analysis", "get_context_capsule", "diagnose_last_task", "get_task_evidence", "compare_clients",
 		"compare_models", "get_cost_summary", "get_quota_status", "get_performance_history",
 		"recommend_next_action",
 	}
@@ -55,6 +55,17 @@ func TestStdioInitializeAndToolList(t *testing.T) {
 		annotations := tool["annotations"].(map[string]any)
 		if annotations["readOnlyHint"] != true || annotations["destructiveHint"] != false {
 			t.Fatalf("tool is not read-only: %v", annotations)
+		}
+	}
+}
+
+func TestInitializeTellsClientWhenToReadProjectAnalysis(t *testing.T) {
+	request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n"
+	result := responseResult(t, runProtocol(t, request)[0])
+	instructions, _ := result["instructions"].(string)
+	for _, required := range []string{"get_project_analysis", "final answer", "failure", "cost"} {
+		if !strings.Contains(instructions, required) {
+			t.Fatalf("instructions missing %q: %s", required, instructions)
 		}
 	}
 }

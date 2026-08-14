@@ -753,11 +753,35 @@ type localEvidenceStore interface {
 	ListSessionEvents(context.Context, string) ([]events.Event, error)
 }
 
+type localAnalysisStore interface {
+	LiveConversationAnalysis(context.Context) (conversations.LiveAnalysis, error)
+}
+
 // localMCPBackend turns normalized local events into bounded, payload-free
 // evidence. Tools for which no compatible telemetry exists remain unavailable.
 type localMCPBackend struct{ store localEvidenceStore }
 
 func (backend localMCPBackend) Execute(ctx context.Context, tool string, arguments map[string]any) (mcp.ToolEvidence, error) {
+	if tool == "get_project_analysis" {
+		store, ok := backend.store.(localAnalysisStore)
+		if !ok {
+			return unavailableMCPBackend{}.Execute(ctx, tool, arguments)
+		}
+		analysis, err := store.LiveConversationAnalysis(ctx)
+		if err != nil {
+			return mcp.ToolEvidence{}, err
+		}
+		items := []mcp.EvidenceItem{
+			{Label: "项目健康度", Value: fmt.Sprintf("%d/100", analysis.HealthScore)},
+			{Label: "请求与失败", Value: fmt.Sprintf("%d 次请求，%d 次失败", analysis.Requests, analysis.FailedRequests)},
+			{Label: "Token 效率", Value: fmt.Sprintf("平均每次 %.0f Token，缓存占比 %.1f%%", analysis.TokensPerRequest, analysis.CacheHitRate)},
+			{Label: "平均响应", Value: fmt.Sprintf("%.0f ms", analysis.AverageLatencyMS)},
+		}
+		for _, finding := range analysis.Findings {
+			items = append(items, mcp.EvidenceItem{Label: finding.Title, Value: finding.Evidence + "；建议：" + finding.Recommendation})
+		}
+		return mcp.ToolEvidence{Summary: analysis.Summary, Items: items, Provenance: "local-sqlite-deterministic-analysis", Precision: "exact", DataLimitNotes: analysis.Limitations}, nil
+	}
 	if tool != "get_task_evidence" {
 		return unavailableMCPBackend{}.Execute(ctx, tool, arguments)
 	}

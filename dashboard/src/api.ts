@@ -12,7 +12,9 @@ export type SessionEvidence = { sessionId: string; events: SafeEvent[] };
 export type Message = { id: string; requestId: string; sequence: number; role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolName?: string; toolPayloadJson?: string; createdAt: string };
 export type Conversation = { id: string; sessionId: string; projectId: string; client: { name: string; version: string }; model: { displayName: string }; protocol: string; method: string; path: string; statusCode: number; startedAt: string; completedAt?: string; firstByteMs: number; durationMs: number; usage: { inputTokens?: number; outputTokens?: number; cachedTokens?: number; reasoningTokens?: number; precision: Precision; provenance: string }; cost: { amountMicros?: number; currency: string; precision: Precision; provenance: string }; messages: Message[] };
 export type ClientConnection = { key: string; displayName: string; detected: boolean; state: 'unavailable' | 'detected' | 'connected' | 'active' | 'error'; capability: string; detail: string; lastHeartbeatAt?: string; updatedAt: string };
-export type LiveAnalysis = { requests: number; activeSessions: number; inputTokens: number; outputTokens: number; cachedTokens: number; reasoningTokens: number; exactCostMicros: number; estimatedCostMicros: number; unknownCostCount: number; averageLatencyMs: number; limitations: string[] };
+export type FindingSeverity = 'good' | 'info' | 'low' | 'medium' | 'high';
+export type AnalysisFinding = { id: string; severity: FindingSeverity; title: string; description: string; evidence: string; recommendation: string };
+export type LiveAnalysis = { projectId: string; requests: number; activeSessions: number; inputTokens: number; outputTokens: number; cachedTokens: number; reasoningTokens: number; exactCostMicros: number; estimatedCostMicros: number; unknownCostCount: number; averageLatencyMs: number; failedRequests: number; toolCalls: number; tokensPerRequest: number; cacheHitRate: number; healthScore: number; summary: string; findings: AnalysisFinding[]; limitations: string[] };
 
 export interface DashboardAPI {
   loadSummary(): Promise<Summary>;

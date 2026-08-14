@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 )
 
@@ -307,8 +308,46 @@ func TestLocalMCPBackendReturnsSanitizedTaskEvidence(t *testing.T) {
 	}
 }
 
+func TestLocalMCPBackendReturnsCurrentProjectAnalysis(t *testing.T) {
+	backend := localMCPBackend{store: fakeLocalAnalysisStore{
+		fakeLocalEvidenceStore: fakeLocalEvidenceStore{},
+		analysis: conversations.LiveAnalysis{
+			ProjectID: "project-current", Requests: 4, FailedRequests: 1, HealthScore: 72,
+			TokensPerRequest: 12_500, CacheHitRate: 20, AverageLatencyMS: 2_500,
+			Summary:     "当前项目需要处理一个失败请求。",
+			Findings:    []conversations.Finding{{Title: "失败请求需要处理", Evidence: "1/4 次失败", Recommendation: "先查看失败证据"}},
+			Limitations: []string{"费用目录不完整。"},
+		},
+	}}
+	evidence, err := backend.Execute(context.Background(), "get_project_analysis", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Summary != "当前项目需要处理一个失败请求。" || evidence.Provenance != "local-sqlite-deterministic-analysis" {
+		t.Fatalf("analysis evidence=%+v", evidence)
+	}
+	joined := evidence.Summary
+	for _, item := range evidence.Items {
+		joined += " " + item.Label + " " + item.Value
+	}
+	for _, expected := range []string{"72/100", "4 次请求，1 次失败", "1/4 次失败", "先查看失败证据"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("analysis evidence missing %q: %s", expected, joined)
+		}
+	}
+}
+
 type fakeLocalEvidenceStore struct{ events []events.Event }
 
 func (store fakeLocalEvidenceStore) ListSessionEvents(_ context.Context, _ string) ([]events.Event, error) {
 	return store.events, nil
+}
+
+type fakeLocalAnalysisStore struct {
+	fakeLocalEvidenceStore
+	analysis conversations.LiveAnalysis
+}
+
+func (store fakeLocalAnalysisStore) LiveConversationAnalysis(_ context.Context) (conversations.LiveAnalysis, error) {
+	return store.analysis, nil
 }

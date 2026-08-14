@@ -64,17 +64,34 @@ type ClientConnection struct {
 }
 
 type LiveAnalysis struct {
-	Requests            int      `json:"requests"`
-	ActiveSessions      int      `json:"activeSessions"`
-	InputTokens         int64    `json:"inputTokens"`
-	OutputTokens        int64    `json:"outputTokens"`
-	CachedTokens        int64    `json:"cachedTokens"`
-	ReasoningTokens     int64    `json:"reasoningTokens"`
-	ExactCostMicros     int64    `json:"exactCostMicros"`
-	EstimatedCostMicros int64    `json:"estimatedCostMicros"`
-	UnknownCostCount    int      `json:"unknownCostCount"`
-	AverageLatencyMS    float64  `json:"averageLatencyMs"`
-	Limitations         []string `json:"limitations"`
+	ProjectID           string    `json:"projectId"`
+	Requests            int       `json:"requests"`
+	ActiveSessions      int       `json:"activeSessions"`
+	InputTokens         int64     `json:"inputTokens"`
+	OutputTokens        int64     `json:"outputTokens"`
+	CachedTokens        int64     `json:"cachedTokens"`
+	ReasoningTokens     int64     `json:"reasoningTokens"`
+	ExactCostMicros     int64     `json:"exactCostMicros"`
+	EstimatedCostMicros int64     `json:"estimatedCostMicros"`
+	UnknownCostCount    int       `json:"unknownCostCount"`
+	AverageLatencyMS    float64   `json:"averageLatencyMs"`
+	FailedRequests      int       `json:"failedRequests"`
+	ToolCalls           int       `json:"toolCalls"`
+	TokensPerRequest    float64   `json:"tokensPerRequest"`
+	CacheHitRate        float64   `json:"cacheHitRate"`
+	HealthScore         int       `json:"healthScore"`
+	Summary             string    `json:"summary"`
+	Findings            []Finding `json:"findings"`
+	Limitations         []string  `json:"limitations"`
+}
+
+type Finding struct {
+	ID             string `json:"id"`
+	Severity       string `json:"severity"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Evidence       string `json:"evidence"`
+	Recommendation string `json:"recommendation"`
 }
 
 type PrivacySettings struct {

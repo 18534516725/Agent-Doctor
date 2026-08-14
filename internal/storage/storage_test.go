@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -251,6 +252,62 @@ func TestConversationRoundTripPreservesCompleteMessagesAndUsage(t *testing.T) {
 	}
 	if len(got.Messages) != 3 || got.Messages[1].Content != "完整保留这段对话。" || got.Messages[2].ToolPayloadJSON != `{"command":"go test ./..."}` {
 		t.Fatalf("messages not preserved in order: %+v", got.Messages)
+	}
+}
+
+func TestLiveConversationAnalysisBuildsActionableProjectDiagnosis(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	started := time.Date(2026, 8, 14, 6, 0, 0, 0, time.UTC)
+	completed := started.Add(6 * time.Minute)
+	input, output, cached := int64(9000), int64(1000), int64(2500)
+	legacyInput := int64(900_000)
+	legacyRecord := conversations.Request{
+		ID: "legacy-project-request", SessionID: "legacy-session", ProjectID: "legacy-project",
+		Client: events.ClientRef{Name: "codex", Version: "1"}, Model: events.ModelRef{DisplayName: "gpt-test"},
+		Protocol: "openai", Method: "POST", Path: "/v1/responses", StatusCode: 500,
+		StartedAt: started.Add(-time.Hour), CompletedAt: &completed, DurationMS: 900_000,
+		Usage:    conversations.Usage{InputTokens: &legacyInput, Precision: "exact", Provenance: "provider-response"},
+		Cost:     conversations.Cost{Currency: "USD", Precision: "unavailable", Provenance: "no-catalog"},
+		Messages: []conversations.Message{{ID: "legacy-tool", Sequence: 0, Role: "tool", Content: "legacy result", ToolName: "exec", CreatedAt: started.Add(-time.Hour)}},
+	}
+	if err := database.SaveConversationRequest(context.Background(), legacyRecord); err != nil {
+		t.Fatal(err)
+	}
+	for index, status := range []int{200, 500} {
+		record := conversations.Request{
+			ID: fmt.Sprintf("analysis-request-%d", index), SessionID: "analysis-session", ProjectID: "analysis-project",
+			Client: events.ClientRef{Name: "codex", Version: "1"}, Model: events.ModelRef{DisplayName: "gpt-test"},
+			Protocol: "openai", Method: "POST", Path: "/v1/responses", StatusCode: status,
+			StartedAt: started.Add(time.Duration(index) * time.Minute), CompletedAt: &completed, DurationMS: 360_000,
+			Usage: conversations.Usage{InputTokens: &input, OutputTokens: &output, CachedTokens: &cached, Precision: "exact", Provenance: "provider-response"},
+			Cost:  conversations.Cost{Currency: "USD", Precision: "unavailable", Provenance: "no-catalog"},
+			Messages: []conversations.Message{
+				{ID: fmt.Sprintf("analysis-user-%d", index), Sequence: 0, Role: "user", Content: "执行任务", CreatedAt: started},
+				{ID: fmt.Sprintf("analysis-tool-%d", index), Sequence: 1, Role: "tool", Content: "tool result", ToolName: "exec", CreatedAt: completed},
+			},
+		}
+		if err := database.SaveConversationRequest(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	analysis, err := database.LiveConversationAnalysis(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.ProjectID != "analysis-project" || analysis.Requests != 2 || analysis.HealthScore >= 100 || analysis.FailedRequests != 1 || analysis.ToolCalls != 2 {
+		t.Fatalf("diagnosis counters=%+v", analysis)
+	}
+	if analysis.TokensPerRequest != 10_000 || analysis.CacheHitRate != 25 || analysis.Summary == "" || len(analysis.Findings) < 3 {
+		t.Fatalf("diagnosis is not actionable: %+v", analysis)
+	}
+	if analysis.Findings[0].Title == "" || analysis.Findings[0].Recommendation == "" || analysis.Findings[0].Evidence == "" {
+		t.Fatalf("finding lacks evidence: %+v", analysis.Findings[0])
 	}
 }
 

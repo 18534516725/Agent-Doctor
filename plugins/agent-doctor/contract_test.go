@@ -35,7 +35,7 @@ func TestPluginContract(t *testing.T) {
 	}
 
 	skill := readText(t, "skills/agent-doctor/SKILL.md")
-	for _, required := range []string{"name: agent-doctor", "diagnose_last_task", "Never guess", "read-only"} {
+	for _, required := range []string{"name: agent-doctor", "get_project_analysis", "before the final answer", "diagnose_last_task", "Never guess", "read-only"} {
 		if !strings.Contains(skill, required) {
 			t.Fatalf("skill is missing %q", required)
 		}

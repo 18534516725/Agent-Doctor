@@ -303,6 +303,14 @@ func (database *DB) DeleteConversationSession(ctx context.Context, sessionID str
 
 func (database *DB) LiveConversationAnalysis(ctx context.Context) (conversations.LiveAnalysis, error) {
 	result := conversations.LiveAnalysis{Limitations: []string{"只有响应明确返回 Token 时才计入精确用量；没有价格目录时金额保持未知。"}}
+	if err := database.sql.QueryRowContext(ctx, `
+		SELECT project_id FROM model_requests
+		ORDER BY started_at DESC, id DESC LIMIT 1`).Scan(&result.ProjectID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return buildProjectDiagnosis(result), nil
+		}
+		return conversations.LiveAnalysis{}, fmt.Errorf("query current analysis project: %w", err)
+	}
 	err := database.sql.QueryRowContext(ctx, `
 		SELECT COUNT(*), COUNT(DISTINCT session_id), COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cached_tokens), 0),
@@ -310,14 +318,94 @@ func (database *DB) LiveConversationAnalysis(ctx context.Context) (conversations
 			COALESCE(SUM(CASE WHEN cost_precision='exact' THEN cost_amount_micros ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN cost_precision='estimated' THEN cost_amount_micros ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN cost_precision='unavailable' THEN 1 ELSE 0 END), 0),
-			COALESCE(AVG(duration_ms), 0) FROM model_requests`).Scan(
+			COALESCE(AVG(duration_ms), 0),
+			COALESCE(SUM(CASE WHEN status_code >= 400 OR status_code = 0 THEN 1 ELSE 0 END), 0),
+			(SELECT COUNT(*) FROM conversation_messages AS messages
+			 JOIN model_requests AS requests ON requests.id=messages.request_id
+			 WHERE messages.role='tool' AND requests.project_id=?)
+		FROM model_requests WHERE project_id=?`, result.ProjectID, result.ProjectID).Scan(
 		&result.Requests, &result.ActiveSessions, &result.InputTokens, &result.OutputTokens,
 		&result.CachedTokens, &result.ReasoningTokens, &result.ExactCostMicros,
-		&result.EstimatedCostMicros, &result.UnknownCostCount, &result.AverageLatencyMS)
+		&result.EstimatedCostMicros, &result.UnknownCostCount, &result.AverageLatencyMS,
+		&result.FailedRequests, &result.ToolCalls)
 	if err != nil {
 		return conversations.LiveAnalysis{}, fmt.Errorf("query live conversation analysis: %w", err)
 	}
+	result = buildProjectDiagnosis(result)
 	return result, nil
+}
+
+func buildProjectDiagnosis(result conversations.LiveAnalysis) conversations.LiveAnalysis {
+	totalTokens := result.InputTokens + result.OutputTokens
+	if result.Requests > 0 {
+		result.TokensPerRequest = float64(totalTokens) / float64(result.Requests)
+	}
+	if totalTokens > 0 {
+		result.CacheHitRate = float64(result.CachedTokens) / float64(totalTokens) * 100
+	}
+	result.HealthScore = 100
+	result.Findings = []conversations.Finding{}
+	if result.Requests == 0 {
+		result.HealthScore = 0
+		result.Summary = "正在等待第一批真实调用，采集后会自动生成项目诊断。"
+		return result
+	}
+	if result.FailedRequests > 0 {
+		rate := float64(result.FailedRequests) / float64(result.Requests) * 100
+		result.HealthScore -= minInt(40, int(rate*1.5))
+		result.Findings = append(result.Findings, conversations.Finding{ID: "failure-rate", Severity: severity(rate, 10, 25), Title: "失败请求需要处理", Description: "部分模型请求没有成功完成，会直接影响任务连续性。", Evidence: fmt.Sprintf("%d/%d 次请求失败（%.1f%%）", result.FailedRequests, result.Requests, rate), Recommendation: "先查看最近一次失败的证据，再继续扩大任务范围。"})
+	} else {
+		result.Findings = append(result.Findings, conversations.Finding{ID: "request-health", Severity: "good", Title: "请求链路保持稳定", Description: "当前已采集请求均成功返回。", Evidence: fmt.Sprintf("%d 次请求，未发现失败状态", result.Requests), Recommendation: "继续观察长任务中的延迟与上下文增长。"})
+	}
+	if result.AverageLatencyMS >= 30_000 {
+		result.HealthScore -= 20
+		result.Findings = append(result.Findings, conversations.Finding{ID: "latency", Severity: severity(result.AverageLatencyMS, 30_000, 120_000), Title: "平均响应耗时偏高", Description: "较长的单次等待会放大调试和返工成本。", Evidence: "平均响应 " + formatDurationChinese(result.AverageLatencyMS), Recommendation: "拆分长任务，并减少重复加载的大段上下文。"})
+	} else {
+		result.Findings = append(result.Findings, conversations.Finding{ID: "latency", Severity: "good", Title: "响应节奏正常", Description: "当前平均响应处于可接受范围。", Evidence: "平均响应 " + formatDurationChinese(result.AverageLatencyMS), Recommendation: "继续关注 P95 长尾任务。"})
+	}
+	if result.TokensPerRequest >= 100_000 {
+		result.HealthScore -= 15
+		result.Findings = append(result.Findings, conversations.Finding{ID: "context-size", Severity: severity(result.TokensPerRequest, 100_000, 500_000), Title: "单次上下文消耗过大", Description: "高上下文消耗通常意味着重复输入、日志过长或任务边界过宽。", Evidence: fmt.Sprintf("平均每次 %.0f Token", result.TokensPerRequest), Recommendation: "将稳定项目知识沉淀为记忆，只向模型发送本轮必要证据。"})
+	} else {
+		result.Findings = append(result.Findings, conversations.Finding{ID: "context-size", Severity: "good", Title: "上下文规模可控", Description: "平均单次 Token 尚未触发高消耗阈值。", Evidence: fmt.Sprintf("平均每次 %.0f Token", result.TokensPerRequest), Recommendation: "继续使用缓存与项目记忆减少重复输入。"})
+	}
+	if result.UnknownCostCount > 0 {
+		result.Findings = append(result.Findings, conversations.Finding{ID: "cost-coverage", Severity: "info", Title: "费用仍有未核验部分", Description: "部分请求没有匹配到可信价格依据。", Evidence: fmt.Sprintf("%d 次请求费用未知", result.UnknownCostCount), Recommendation: "补充公开价格目录后再计算精确金额。"})
+	}
+	if result.HealthScore < 0 {
+		result.HealthScore = 0
+	}
+	if result.HealthScore >= 85 {
+		result.Summary = "当前项目运行健康，主要指标保持稳定。"
+	} else if result.HealthScore >= 60 {
+		result.Summary = "当前项目可以继续工作，但存在需要优先处理的效率问题。"
+	} else {
+		result.Summary = "当前项目存在明显风险，建议先处理失败、延迟或上下文异常。"
+	}
+	return result
+}
+
+func severity(value, medium, high float64) string {
+	if value >= high {
+		return "high"
+	}
+	if value >= medium {
+		return "medium"
+	}
+	return "low"
+}
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func formatDurationChinese(milliseconds float64) string {
+	seconds := milliseconds / 1000
+	if seconds < 60 {
+		return fmt.Sprintf("%.1f 秒", seconds)
+	}
+	return fmt.Sprintf("%d 分 %.1f 秒", int(seconds)/60, seconds-float64(int(seconds)/60*60))
 }
 
 func validateConversationRequest(record conversations.Request) error {
