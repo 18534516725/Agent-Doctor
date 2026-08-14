@@ -38,8 +38,8 @@ func TestOpenMigratesAndPersistsFilteredEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
-	if got := database.SchemaVersion(); got != 5 {
-		t.Fatalf("schema=%d want=5", got)
+	if got := database.SchemaVersion(); got != 6 {
+		t.Fatalf("schema=%d want=6", got)
 	}
 	if database.ReadOnly() {
 		t.Fatal("fresh database must be writable")
@@ -137,7 +137,7 @@ func TestFailedMigrationCreatesBackupAndEntersReadOnlyRecovery(t *testing.T) {
 		return time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	}
 	recovered, err := openWithMigrations(path, append(defaultMigrations(), migration{
-		version: 6,
+		version: 7,
 		name:    "broken",
 		sql:     "CREATE TABLE broken( INVALID SQL",
 	}), fixedNow)
@@ -174,6 +174,7 @@ func TestInitialSchemaContainsEveryCoreTable(t *testing.T) {
 		"memories", "context_capsules", "diagnoses", "comparisons", "replays", "consents",
 		"price_catalog_versions", "exchange_rate_versions",
 		"model_requests", "conversation_messages", "client_connections", "analysis_snapshots", "privacy_settings",
+		"guidance_decisions", "project_guidance_settings",
 	}
 	for _, table := range want {
 		var count int
