@@ -18,9 +18,6 @@ const conversationProjectionProvenance = "codex-local-conversation-projection"
 // captured Codex request. Raw prompts, commands, paths and tool output never
 // enter the returned events; only bounded labels and deterministic hashes do.
 func ProjectConversation(record conversations.Request) []events.Event {
-	if record.CompletedAt == nil || record.StatusCode == 0 {
-		return nil
-	}
 	projected := make([]events.Event, 0, len(record.Messages)+1)
 	failed := record.StatusCode >= 400
 	for _, message := range record.Messages {

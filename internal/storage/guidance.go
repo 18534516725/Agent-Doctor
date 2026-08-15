@@ -56,15 +56,21 @@ func (database *DB) RuntimeGuidance(ctx context.Context, sessionID string, now t
 }
 
 func (database *DB) LatestRuntimeGuidance(ctx context.Context, projectID string, now time.Time) (guidance.Decision, error) {
-	row := database.sql.QueryRowContext(ctx, `
-		SELECT payload_json FROM guidance_decisions
-		WHERE project_id=? AND expires_at>?
-		ORDER BY created_at DESC LIMIT 1`, projectID, formatGuidanceTime(now))
-	decision, err := scanGuidance(row)
+	sessionID, err := database.latestSessionIDForProject(ctx, projectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return guidance.Evaluate(guidance.SessionState{ProjectID: projectID}, now.UTC()), nil
 	}
-	return decision, err
+	if err != nil {
+		return guidance.Decision{}, err
+	}
+	eventList, err := database.ListSessionEvents(ctx, sessionID)
+	if err != nil {
+		return guidance.Decision{}, err
+	}
+	if len(eventList) == 0 {
+		return guidance.Evaluate(guidance.SessionState{SessionID: sessionID, ProjectID: projectID}, now.UTC()), nil
+	}
+	return database.RuntimeGuidance(ctx, sessionID, now)
 }
 
 func (database *DB) ListActiveGuidance(ctx context.Context, now time.Time, limit int) ([]guidance.Decision, error) {
@@ -103,9 +109,16 @@ func (database *DB) ListActiveGuidance(ctx context.Context, now time.Time, limit
 func (database *DB) GuidanceStatus(ctx context.Context, now time.Time) (guidance.Status, error) {
 	var occurredAt, client string
 	err := database.sql.QueryRowContext(ctx, `
-		SELECT e.occurred_at, c.name
-		FROM events e JOIN clients c ON c.id=e.client_id
-		ORDER BY e.occurred_at DESC, e.id DESC LIMIT 1`).Scan(&occurredAt, &client)
+		SELECT activity_at, client_name FROM (
+			SELECT e.occurred_at AS activity_at, c.name AS client_name, e.id AS activity_id
+			FROM events e JOIN clients c ON c.id=e.client_id
+			UNION ALL
+			SELECT m.created_at AS activity_at, c.name AS client_name, m.id AS activity_id
+			FROM conversation_messages m
+			JOIN model_requests r ON r.id=m.request_id
+			JOIN clients c ON c.id=r.client_id
+		)
+		ORDER BY activity_at DESC, activity_id DESC LIMIT 1`).Scan(&occurredAt, &client)
 	if errors.Is(err, sql.ErrNoRows) {
 		return guidance.ResolveStatus(nil, "", false, now.UTC(), nil), nil
 	}
@@ -159,16 +172,87 @@ func (database *DB) SaveGuidanceControlLevel(ctx context.Context, projectID stri
 	return nil
 }
 
+func (database *DB) RecordGuidanceDelivery(ctx context.Context, receipt guidance.DeliveryReceipt) error {
+	if database.readOnly {
+		return ErrReadOnlyRecovery
+	}
+	if receipt.SessionID == "" || receipt.ProjectID == "" || receipt.Client == "" || receipt.DecisionID == "" || receipt.DeliveredAt.IsZero() {
+		return fmt.Errorf("complete guidance delivery receipt is required")
+	}
+	if !validControlLevel(receipt.ControlLevel) {
+		return fmt.Errorf("unsupported guidance delivery control level %q", receipt.ControlLevel)
+	}
+	switch receipt.DecisionKind {
+	case guidance.KindContinue, guidance.KindAdvise, guidance.KindRedirect, guidance.KindAsk, guidance.KindBlock, guidance.KindVerify:
+	default:
+		return fmt.Errorf("unsupported guidance delivery decision %q", receipt.DecisionKind)
+	}
+	deliveredAt := formatGuidanceTime(receipt.DeliveredAt)
+	_, err := database.sql.ExecContext(ctx, `
+		INSERT INTO guidance_delivery_receipts(
+			session_id, project_id, client, decision_id, decision_kind, control_level,
+			delivery_count, first_delivered_at, delivered_at
+		) VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			project_id=excluded.project_id,
+			client=excluded.client,
+			decision_id=excluded.decision_id,
+			decision_kind=excluded.decision_kind,
+			control_level=excluded.control_level,
+			delivery_count=guidance_delivery_receipts.delivery_count+1,
+			delivered_at=excluded.delivered_at`,
+		receipt.SessionID, receipt.ProjectID, receipt.Client, receipt.DecisionID,
+		receipt.DecisionKind, receipt.ControlLevel, deliveredAt, deliveredAt,
+	)
+	if err != nil {
+		return fmt.Errorf("record guidance delivery: %w", err)
+	}
+	return nil
+}
+
+func (database *DB) LatestGuidanceDelivery(ctx context.Context) (guidance.DeliveryReceipt, error) {
+	var receipt guidance.DeliveryReceipt
+	var deliveredAt string
+	err := database.sql.QueryRowContext(ctx, `
+		SELECT session_id, project_id, client, decision_id, decision_kind,
+			control_level, delivery_count, delivered_at
+		FROM guidance_delivery_receipts
+		ORDER BY delivered_at DESC, session_id DESC LIMIT 1`).Scan(
+		&receipt.SessionID, &receipt.ProjectID, &receipt.Client, &receipt.DecisionID,
+		&receipt.DecisionKind, &receipt.ControlLevel, &receipt.DeliveryCount, &deliveredAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return guidance.DeliveryReceipt{}, nil
+	}
+	if err != nil {
+		return guidance.DeliveryReceipt{}, fmt.Errorf("query latest guidance delivery: %w", err)
+	}
+	receipt.DeliveredAt, err = time.Parse(time.RFC3339Nano, deliveredAt)
+	if err != nil {
+		return guidance.DeliveryReceipt{}, fmt.Errorf("parse guidance delivery time: %w", err)
+	}
+	return receipt, nil
+}
+
 func (database *DB) latestSessionID(ctx context.Context) (string, error) {
+	return database.latestSessionIDForProject(ctx, "")
+}
+
+func (database *DB) latestSessionIDForProject(ctx context.Context, projectID string) (string, error) {
 	var sessionID string
 	err := database.sql.QueryRowContext(ctx, `
 		SELECT s.id FROM sessions s
-		LEFT JOIN events e ON e.session_id=s.id
-		GROUP BY s.id
-		ORDER BY COALESCE(MAX(e.occurred_at), s.started_at) DESC, s.id DESC
-		LIMIT 1`).Scan(&sessionID)
+		WHERE (?='' OR s.project_id=?)
+		ORDER BY MAX(
+			s.started_at,
+			COALESCE((SELECT MAX(e.occurred_at) FROM events e WHERE e.session_id=s.id), ''),
+			COALESCE((SELECT MAX(r.started_at) FROM model_requests r WHERE r.session_id=s.id), ''),
+			COALESCE((SELECT MAX(r.completed_at) FROM model_requests r WHERE r.session_id=s.id), ''),
+			COALESCE((SELECT MAX(m.created_at) FROM conversation_messages m WHERE m.session_id=s.id), '')
+		) DESC, s.id DESC
+		LIMIT 1`, projectID, projectID).Scan(&sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("no session evidence is available")
+		return "", sql.ErrNoRows
 	}
 	if err != nil {
 		return "", fmt.Errorf("resolve latest session: %w", err)

@@ -39,7 +39,7 @@ type toolDefinition struct {
 
 var readOnlyTools = []toolDefinition{
 	newTool("get_project_analysis", "Project analysis", "Get the current local project health, risks, cost coverage, efficiency findings, and recommended next actions before answering the user.", map[string]string{}, nil),
-	newTool("get_runtime_guidance", "Runtime guidance", "Get the current evidence-backed instruction for keeping a coding-agent task on track.", map[string]string{"sessionId": "string", "projectId": "string"}, nil),
+	newGuidanceTool("get_runtime_guidance", "Runtime guidance", "Get the current evidence-backed instruction for keeping a coding-agent task on track and record a bounded local delivery receipt.", map[string]string{"sessionId": "string", "projectId": "string"}, nil),
 	newTool("get_context_capsule", "Context capsule", "Get a token-bounded, provenance-labelled context capsule for the current project.", map[string]string{"projectId": "string", "currentFile": "string", "budget": "number"}, []string{"projectId"}),
 	newTool("diagnose_last_task", "Diagnose last task", "Diagnose the latest captured task using sanitized local evidence.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),
 	newTool("get_task_evidence", "Task evidence", "Get the bounded evidence timeline for one captured task.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),
@@ -49,6 +49,12 @@ var readOnlyTools = []toolDefinition{
 	newTool("get_quota_status", "Quota status", "Get locally observed quota status; unavailable fields are never guessed.", map[string]string{"client": "string"}, nil),
 	newTool("get_performance_history", "Performance history", "Get bounded task outcome and latency history for a project.", map[string]string{"projectId": "string", "limit": "number"}, []string{"projectId"}),
 	newTool("recommend_next_action", "Recommend next action", "Recommend a safe next action from current evidence and approved validations.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),
+}
+
+func newGuidanceTool(name, title, description string, properties map[string]string, required []string) toolDefinition {
+	tool := newTool(name, title, description, properties, required)
+	tool.Annotations["readOnlyHint"] = false
+	return tool
 }
 
 func newTool(name, title, description string, properties map[string]string, required []string) toolDefinition {

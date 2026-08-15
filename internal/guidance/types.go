@@ -48,6 +48,20 @@ type Decision struct {
 	CreatedAt           time.Time `json:"createdAt"`
 }
 
+// DeliveryReceipt proves that a client fetched one guidance decision. It is
+// deliberately content-free and never contains prompts, code, commands, paths,
+// tool results, or credentials.
+type DeliveryReceipt struct {
+	SessionID     string       `json:"sessionId"`
+	ProjectID     string       `json:"projectId"`
+	Client        string       `json:"client"`
+	DecisionID    string       `json:"decisionId"`
+	DecisionKind  Kind         `json:"decisionKind"`
+	ControlLevel  ControlLevel `json:"controlLevel"`
+	DeliveryCount int          `json:"deliveryCount"`
+	DeliveredAt   time.Time    `json:"deliveredAt"`
+}
+
 type SignalKind string
 
 const (

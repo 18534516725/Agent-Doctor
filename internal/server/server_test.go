@@ -28,6 +28,7 @@ type memoryEventStore struct {
 	connections    []conversations.ClientConnection
 	analysis       conversations.LiveAnalysis
 	guidance       []guidance.Decision
+	delivery       guidance.DeliveryReceipt
 	levels         map[string]guidance.ControlLevel
 	guidanceStatus guidance.Status
 }
@@ -103,6 +104,10 @@ func (store *memoryEventStore) GuidanceStatus(_ context.Context, _ time.Time) (g
 	return store.guidanceStatus, nil
 }
 
+func (store *memoryEventStore) LatestGuidanceDelivery(_ context.Context) (guidance.DeliveryReceipt, error) {
+	return store.delivery, nil
+}
+
 func (store *memoryEventStore) GuidanceControlLevel(_ context.Context, projectID string) (guidance.ControlLevel, error) {
 	if level := store.levels[projectID]; level != "" {
 		return level, nil
@@ -137,6 +142,28 @@ func TestGuidanceAPIIncludesHonestConnectionStatus(t *testing.T) {
 	service.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"observing"`) || !strings.Contains(response.Body.String(), `"advice":true`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestActiveGuidanceIncludesLatestDelivery(t *testing.T) {
+	now := time.Now().UTC()
+	store := &memoryEventStore{
+		guidanceStatus: guidance.Status{State: guidance.StateObserving, Client: "codex", Advice: true, LastEvidenceAt: &now},
+		delivery: guidance.DeliveryReceipt{
+			SessionID: "session-live", ProjectID: "project-live", Client: "codex-mcp",
+			DecisionID: "decision-live", DecisionKind: guidance.KindContinue,
+			ControlLevel: guidance.ControlGuide, DeliveryCount: 3, DeliveredAt: now,
+		},
+	}
+	service, _ := New(Config{Version: "0.1.0-dev", Store: store})
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/guidance/active", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	body := response.Body.String()
+	for _, expected := range []string{`"delivery":{`, `"client":"codex-mcp"`, `"deliveryCount":3`, `"decisionKind":"continue"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("active guidance missing %s: %s", expected, body)
+		}
 	}
 }
 

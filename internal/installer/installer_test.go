@@ -127,6 +127,13 @@ func TestBuildAllPlanOwnsCodexAndClaudeGuidanceAssets(t *testing.T) {
 			t.Fatalf("change[%d]=%q want=%q", index, plan.Changes[index].Path, path)
 		}
 	}
+	codexSkill := string(plan.Changes[1].After)
+	agentsGuidance := string(plan.Changes[2].After)
+	for _, required := range []string{"current project ID", "every coding turn", "Agent Doctor intervened", "cannot force-block"} {
+		if !strings.Contains(codexSkill, required) && !strings.Contains(agentsGuidance, required) {
+			t.Fatalf("installed Codex guidance is missing %q\nskill=%s\nagents=%s", required, codexSkill, agentsGuidance)
+		}
+	}
 	if _, err := Apply(plan); err != nil {
 		t.Fatal(err)
 	}

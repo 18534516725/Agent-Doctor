@@ -44,6 +44,7 @@ type privacyStore interface {
 type guidanceStore interface {
 	ListActiveGuidance(context.Context, time.Time, int) ([]guidance.Decision, error)
 	GuidanceStatus(context.Context, time.Time) (guidance.Status, error)
+	LatestGuidanceDelivery(context.Context) (guidance.DeliveryReceipt, error)
 	GuidanceControlLevel(context.Context, string) (guidance.ControlLevel, error)
 	SaveGuidanceControlLevel(context.Context, string, guidance.ControlLevel, time.Time) error
 }
@@ -222,7 +223,16 @@ func (server *Server) activeGuidance(response http.ResponseWriter, request *http
 	if status.State == "" {
 		status = guidance.ResolveStatus(nil, "", false, now, nil)
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"items": items, "status": status})
+	delivery, deliveryErr := store.LatestGuidanceDelivery(request.Context())
+	if deliveryErr != nil {
+		writeError(response, http.StatusServiceUnavailable, "guidance delivery status unavailable")
+		return
+	}
+	var deliveryValue any
+	if delivery.SessionID != "" {
+		deliveryValue = delivery
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"items": items, "status": status, "delivery": deliveryValue})
 }
 
 func (server *Server) getGuidanceControlLevel(response http.ResponseWriter, request *http.Request) {

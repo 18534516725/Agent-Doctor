@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { localAPI, type ClientConnection, type ControlLevel, type Conversation, type DashboardAPI, type GuidanceDecision, type GuidanceStatus, type LiveAnalysis, type PrivacySettings, type Snapshot, type Summary } from './api';
+import { localAPI, type ClientConnection, type ControlLevel, type Conversation, type DashboardAPI, type GuidanceDecision, type GuidanceDelivery, type GuidanceStatus, type LiveAnalysis, type PrivacySettings, type Snapshot, type Summary } from './api';
 import { copy, initialLocale, persistLocale, routeOrder, type Locale, type Route } from './i18n';
 import { useLiveUpdates, type EventSourceFactory } from './live';
 import { ComparisonPage } from './pages/ComparisonPage';
@@ -26,6 +26,7 @@ export function App({ api = localAPI, liveFactory }: { api?: DashboardAPI; liveF
   const [analysis, setAnalysis] = useState(emptyAnalysis);
   const [guidance, setGuidance] = useState<GuidanceDecision[]>([]);
   const [guidanceStatus, setGuidanceStatus] = useState<GuidanceStatus>({ state: 'unavailable', client: '', advice: false, enforcement: false, explanation: '' });
+  const [guidanceDelivery, setGuidanceDelivery] = useState<GuidanceDelivery | null>(null);
   const [controlLevel, setControlLevel] = useState<ControlLevel>('guide');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [connections, setConnections] = useState<ClientConnection[]>([]);
@@ -39,7 +40,7 @@ export function App({ api = localAPI, liveFactory }: { api?: DashboardAPI; liveF
     setError('');
     return Promise.all([api.loadSummary(), api.loadSnapshot(), api.loadConversations(), api.loadConnections(), api.loadLiveAnalysis(), api.loadPrivacy(), api.loadActiveGuidance()])
       .then(async ([nextSummary, nextSnapshot, nextConversations, nextConnections, nextAnalysis, nextPrivacy, nextGuidance]) => {
-        setSummary(nextSummary); setSnapshot(nextSnapshot); setConversations(nextConversations); setConnections(nextConnections); setAnalysis(nextAnalysis); setPrivacy(nextPrivacy); setGuidance(nextGuidance.items); setGuidanceStatus(nextGuidance.status);
+        setSummary(nextSummary); setSnapshot(nextSnapshot); setConversations(nextConversations); setConnections(nextConnections); setAnalysis(nextAnalysis); setPrivacy(nextPrivacy); setGuidance(nextGuidance.items); setGuidanceStatus(nextGuidance.status); setGuidanceDelivery(nextGuidance.delivery ?? null);
         setSelectedID((current) => current && nextConversations.some((item) => item.id === current) ? current : (nextConversations[0]?.id ?? ''));
         const projectId = nextGuidance.items[0]?.projectId || nextAnalysis.projectId || nextConversations[0]?.projectId || '';
         if (projectId) setControlLevel((await api.loadGuidanceControlLevel(projectId)).controlLevel);
@@ -60,13 +61,13 @@ export function App({ api = localAPI, liveFactory }: { api?: DashboardAPI; liveF
       setError(reason instanceof Error ? reason.message : (locale === 'zh' ? '介入级别更新失败' : 'Control level update failed'));
     });
   };
-  const pageProps: PageProps = { locale, api, summary, snapshot, conversations, selected, connections: mergedConnections, analysis, guidance, guidanceStatus, controlLevel, privacy, setPrivacy, setGuidanceControlLevel: updateGuidanceControlLevel, selectConversation: setSelectedID, refresh: () => { void refresh(); } };
+  const pageProps: PageProps = { locale, api, summary, snapshot, conversations, selected, connections: mergedConnections, analysis, guidance, guidanceDelivery, guidanceStatus, controlLevel, privacy, setPrivacy, setGuidanceControlLevel: updateGuidanceControlLevel, selectConversation: setSelectedID, refresh: () => { void refresh(); } };
   const switchLocale = () => { const next = locale === 'zh' ? 'en' : 'zh'; setLocale(next); persistLocale(next); };
 
   return <main className="doctor-shell">
     <header className="doctor-header"><button className="wordmark" onClick={() => setRoute('overview')}><i>AD</i><span>Agent Doctor<small>{locale === 'zh' ? '本地 AI 协作观测台' : 'Local AI observatory'}</small></span></button><div className="header-actions"><div className={`live-pill state-${liveState}`}><i />{liveState === 'connected' ? labels.listening : labels.offline}</div><button className="language-toggle" onClick={switchLocale}>{labels.language}</button></div></header>
     <div className="doctor-layout"><nav className="doctor-nav" aria-label={locale === 'zh' ? '功能导航' : 'Navigation'}>{routeOrder.map((id, index) => <button key={id} className={route === id ? 'is-active' : ''} onClick={() => setRoute(id)} aria-label={labels.nav[id]}><small>{String(index + 1).padStart(2, '0')}</small><span>{labels.nav[id]}</span><i>↗</i></button>)}</nav>
-      <section className="doctor-stage"><div className={`stage-intro ${route === 'overview' ? 'stage-intro-overview' : ''}`}><div><p className="eyebrow">{labels.eyebrow}</p>{route !== 'overview' && <h1>{labels.nav[route]}</h1>}<p>{route === 'overview' ? labels.lead : sectionLead(route, locale)}</p></div><div className="local-seal"><i />{labels.local}<small>SQLite v7</small></div></div>
+      <section className="doctor-stage"><div className={`stage-intro ${route === 'overview' ? 'stage-intro-overview' : ''}`}><div><p className="eyebrow">{labels.eyebrow}</p>{route !== 'overview' && <h1>{labels.nav[route]}</h1>}<p>{route === 'overview' ? labels.lead : sectionLead(route, locale)}</p></div><div className="local-seal"><i />{labels.local}<small>SQLite v8</small></div></div>
         {error && <div className="error-banner" role="alert"><strong>{locale === 'zh' ? '连接失败' : 'Connection failed'}</strong><span>{error}</span><button onClick={() => void refresh()}>{locale === 'zh' ? '重试' : 'Retry'}</button></div>}
         {loading ? <div className="loading-panel"><i /><strong>{locale === 'zh' ? '正在读取本地数据…' : 'Loading local data…'}</strong></div> : <div className="page-enter" key={route}>{renderPage(route, pageProps)}</div>}
       </section></div>

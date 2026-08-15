@@ -107,7 +107,7 @@ func (server *Server) handle(ctx context.Context, incoming request) (response, b
 			"protocolVersion": protocol,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]string{"name": "agent-doctor", "title": "Agent Doctor", "version": server.version},
-			"instructions":    "All tools are read-only and return sanitized local evidence. Call get_runtime_guidance at task start, after repeated failure or context compaction, and before a final answer. Call get_project_analysis when a task completes, becomes slow, or may have unusual token or cost impact. Follow evidence-backed redirect or verify instructions, treat continue as silence, and never invent unavailable values.",
+			"instructions":    "All tools return sanitized local evidence; get_runtime_guidance also records a bounded local delivery receipt. At the start of every coding turn call get_runtime_guidance with projectId set to the current project ID. Call it again after a failed tool step, context compaction, and before a final answer. Follow evidence-backed non-continue instructions before continuing and briefly disclose a real intervention; treat continue as silence. Codex MCP cannot force-block tool calls. Never invent unavailable values.",
 		}), true
 	case "ping":
 		return resultResponse(incoming.ID, map[string]any{}), true

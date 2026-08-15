@@ -78,3 +78,29 @@ func TestProjectConversationCanonicalizesToolPayloadAndKeepsStableIDs(t *testing
 		t.Fatalf("successful request did not record progress: %+v", firstEvents)
 	}
 }
+
+func TestProjectConversationProjectsAvailableToolEvidenceBeforeRequestCompletion(t *testing.T) {
+	started := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	record := conversations.Request{
+		ID: "request-active", SessionID: "session-active", ProjectID: "project-active",
+		Client: events.ClientRef{Name: "codex", Version: "1"}, Model: events.ModelRef{DisplayName: "gpt-test"},
+		StartedAt: started,
+		Messages: []conversations.Message{{
+			ID: "message-tool", Sequence: 1, Role: "assistant", ToolName: "exec",
+			ToolPayloadJSON: `{"command":"go test ./..."}`, CreatedAt: started.Add(time.Second),
+		}},
+	}
+
+	projected := ProjectConversation(record)
+	if len(projected) != 1 {
+		t.Fatalf("active request projected %d events, want one completed tool event: %+v", len(projected), projected)
+	}
+	if projected[0].EventType != events.EventToolCompleted {
+		t.Fatalf("active tool event type=%q want=%q", projected[0].EventType, events.EventToolCompleted)
+	}
+	for _, event := range projected {
+		if event.EventType == events.EventCommandCompleted {
+			t.Fatalf("active request fabricated completion: %+v", projected)
+		}
+	}
+}

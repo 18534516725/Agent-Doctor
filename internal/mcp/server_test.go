@@ -53,8 +53,9 @@ func TestStdioInitializeAndToolList(t *testing.T) {
 			t.Fatalf("tool[%d]=%v want=%s", index, tool["name"], want[index])
 		}
 		annotations := tool["annotations"].(map[string]any)
-		if annotations["readOnlyHint"] != true || annotations["destructiveHint"] != false {
-			t.Fatalf("tool is not read-only: %v", annotations)
+		wantReadOnly := want[index] != "get_runtime_guidance"
+		if annotations["readOnlyHint"] != wantReadOnly || annotations["destructiveHint"] != false {
+			t.Fatalf("tool annotations are dishonest for %s: %v", want[index], annotations)
 		}
 	}
 }
@@ -63,7 +64,7 @@ func TestInitializeTellsClientWhenToReadProjectAnalysis(t *testing.T) {
 	request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n"
 	result := responseResult(t, runProtocol(t, request)[0])
 	instructions, _ := result["instructions"].(string)
-	for _, required := range []string{"get_project_analysis", "get_runtime_guidance", "task start", "final answer", "failure", "compaction", "cost"} {
+	for _, required := range []string{"get_runtime_guidance", "every coding turn", "current project ID", "final answer", "failed tool step", "compaction", "delivery receipt", "cannot force-block"} {
 		if !strings.Contains(instructions, required) {
 			t.Fatalf("instructions missing %q: %s", required, instructions)
 		}

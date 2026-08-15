@@ -187,14 +187,14 @@ func TestDoctorJSONReportsLocalInstallationState(t *testing.T) {
 	}
 }
 
-func TestMCPServeStartsReadOnlyProtocolServer(t *testing.T) {
+func TestMCPServeStartsSanitizedLocalProtocolServer(t *testing.T) {
 	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}` + "\n")
 	var out bytes.Buffer
 	code := RunWithInput([]string{"mcp", "serve"}, input, &out, io.Discard)
 	if code != 0 {
 		t.Fatalf("code=%d output=%q", code, out.String())
 	}
-	for _, want := range []string{`"name":"agent-doctor"`, `"title":"Agent Doctor"`, `read-only`} {
+	for _, want := range []string{`"name":"agent-doctor"`, `"title":"Agent Doctor"`, `sanitized local evidence`, `delivery receipt`} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("MCP response missing %q: %s", want, out.String())
 		}
@@ -381,7 +381,7 @@ func TestLocalMCPBackendReturnsCurrentProjectAnalysis(t *testing.T) {
 
 func TestLocalMCPBackendReturnsRuntimeGuidance(t *testing.T) {
 	now := time.Now().UTC()
-	backend := localMCPBackend{store: fakeLocalGuidanceStore{
+	store := &fakeLocalGuidanceStore{
 		fakeLocalEvidenceStore: fakeLocalEvidenceStore{events: []events.Event{
 			{EventID: "event-1", Precision: events.PrecisionExact},
 			{EventID: "event-2", Precision: events.PrecisionExact},
@@ -398,7 +398,8 @@ func TestLocalMCPBackendReturnsRuntimeGuidance(t *testing.T) {
 			CreatedAt:         now, ExpiresAt: now.Add(time.Minute),
 		},
 		level: guidance.ControlGuide,
-	}}
+	}
+	backend := localMCPBackend{store: store}
 	evidence, err := backend.Execute(context.Background(), "get_runtime_guidance", map[string]any{"sessionId": "session-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -407,13 +408,16 @@ func TestLocalMCPBackendReturnsRuntimeGuidance(t *testing.T) {
 	for _, item := range evidence.Items {
 		joined += " " + item.Label + " " + item.Value
 	}
-	for _, expected := range []string{"failing repeatedly", "redirect", "high", "Choose a different", "event-1", "guide"} {
+	for _, expected := range []string{"failing repeatedly", "redirect", "high", "Choose a different", "event-1", "guide", "Delivery receipt"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("guidance missing %q: %+v", expected, evidence)
 		}
 	}
 	if evidence.Provenance != "local-sqlite-deterministic-guidance" || evidence.Precision != "exact" {
 		t.Fatalf("guidance metadata=%+v", evidence)
+	}
+	if store.receipt.SessionID != "session-1" || store.receipt.ProjectID != "project-1" || store.receipt.Client != "codex-mcp" || store.receipt.DecisionID != "decision-1" {
+		t.Fatalf("delivery receipt was not recorded: %+v", store.receipt)
 	}
 }
 
@@ -432,18 +436,24 @@ type fakeLocalGuidanceStore struct {
 	fakeLocalEvidenceStore
 	decision guidance.Decision
 	level    guidance.ControlLevel
+	receipt  guidance.DeliveryReceipt
 }
 
-func (store fakeLocalGuidanceStore) RuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
+func (store *fakeLocalGuidanceStore) RuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
 	return store.decision, nil
 }
 
-func (store fakeLocalGuidanceStore) LatestRuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
+func (store *fakeLocalGuidanceStore) LatestRuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
 	return store.decision, nil
 }
 
-func (store fakeLocalGuidanceStore) GuidanceControlLevel(_ context.Context, _ string) (guidance.ControlLevel, error) {
+func (store *fakeLocalGuidanceStore) GuidanceControlLevel(_ context.Context, _ string) (guidance.ControlLevel, error) {
 	return store.level, nil
+}
+
+func (store *fakeLocalGuidanceStore) RecordGuidanceDelivery(_ context.Context, receipt guidance.DeliveryReceipt) error {
+	store.receipt = receipt
+	return nil
 }
 
 func (store fakeLocalAnalysisStore) LiveConversationAnalysis(_ context.Context) (conversations.LiveAnalysis, error) {

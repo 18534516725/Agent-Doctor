@@ -164,7 +164,13 @@ func (watcher *SessionWatcher) scan(ctx context.Context) error {
 		if seen && previousSize == info.Size() {
 			continue
 		}
-		saved, active, importErr := watcher.importFile(ctx, path)
+		// Close the pause race: a scan that began while capture was enabled
+		// must not read bytes appended after the user paused capture.
+		stillEnabled, _ := watcher.capturePolicy(ctx)
+		if !stillEnabled {
+			return watcher.snapshotFileSizes()
+		}
+		saved, active, importErr := watcher.importFile(ctx, path, info.Size())
 		if importErr != nil {
 			fmt.Fprintf(watcher.config.Log, "Agent Doctor: Codex 会话文件 %s 导入失败：%v\n", filepath.Base(path), importErr)
 			continue
@@ -221,7 +227,7 @@ func (watcher *SessionWatcher) snapshotFileSizes() error {
 	return nil
 }
 
-func (watcher *SessionWatcher) importFile(ctx context.Context, path string) (int, bool, error) {
+func (watcher *SessionWatcher) importFile(ctx context.Context, path string, snapshotSize int64) (int, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, false, err
@@ -230,7 +236,7 @@ func (watcher *SessionWatcher) importFile(ctx context.Context, path string) (int
 	watcher.mu.Lock()
 	captureAfter := watcher.captureAfter
 	watcher.mu.Unlock()
-	requests, err := parseCurrentSessionFileAfter(file, captureAfter)
+	requests, err := parseCurrentSessionFileSnapshotAfter(file, captureAfter, snapshotSize)
 	if err != nil {
 		return 0, false, err
 	}
@@ -386,6 +392,10 @@ func ParseCurrentSessionFile(file *os.File) ([]conversations.Request, error) {
 }
 
 func parseCurrentSessionFileAfter(file *os.File, captureAfter time.Time) ([]conversations.Request, error) {
+	return parseCurrentSessionFileSnapshotAfter(file, captureAfter, -1)
+}
+
+func parseCurrentSessionFileSnapshotAfter(file *os.File, captureAfter time.Time, snapshotSize int64) ([]conversations.Request, error) {
 	if file == nil {
 		return nil, errors.New("Codex session file is required")
 	}
@@ -393,27 +403,31 @@ func parseCurrentSessionFileAfter(file *os.File, captureAfter time.Time) ([]conv
 	if err != nil {
 		return nil, fmt.Errorf("inspect Codex session file: %w", err)
 	}
-	if info.Size() <= sessionTailBytes {
+	size := info.Size()
+	if snapshotSize >= 0 && snapshotSize < size {
+		size = snapshotSize
+	}
+	if size <= sessionTailBytes {
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			return nil, err
 		}
-		return parseCurrentSessionLogAfter(file, captureAfter)
+		return parseCurrentSessionLogAfter(io.LimitReader(file, size), captureAfter)
 	}
-	head, err := readFileRange(file, 0, minInt64(info.Size(), sessionHeadBytes))
+	head, err := readFileRange(file, 0, minInt64(size, sessionHeadBytes))
 	if err != nil {
 		return nil, err
 	}
 	if newline := bytes.LastIndexByte(head, '\n'); newline >= 0 {
 		head = head[:newline+1]
 	}
-	turnOffset, found, err := findLatestTaskStartOffset(file, info.Size())
+	turnOffset, found, err := findLatestTaskStartOffset(file, size)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
 		return nil, fmt.Errorf("latest Codex turn was not found")
 	}
-	tail, err := readFileRange(file, turnOffset, info.Size()-turnOffset)
+	tail, err := readFileRange(file, turnOffset, size-turnOffset)
 	if err != nil {
 		return nil, err
 	}

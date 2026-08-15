@@ -8,7 +8,7 @@ import { TaskGuardian } from '../components/TaskGuardian';
 import type { PageProps } from './types';
 
 export function OverviewPage(props: PageProps) {
-  const { locale, analysis, connections, selected, guidance, guidanceStatus, controlLevel, setGuidanceControlLevel } = props;
+  const { locale, analysis, connections, selected, guidance, guidanceDelivery, guidanceStatus, controlLevel, setGuidanceControlLevel } = props;
   const [showRaw, setShowRaw] = useState(false);
   const current = guidance[0];
   const projectId = current?.projectId || analysis.projectId || selected?.projectId || '';
@@ -22,6 +22,7 @@ export function OverviewPage(props: PageProps) {
       <TaskGuardian
         locale={locale}
         guidance={guidance}
+        delivery={guidanceDelivery}
         status={guidanceStatus}
         controlLevel={controlLevel}
         projectId={projectId}

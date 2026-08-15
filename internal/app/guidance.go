@@ -14,6 +14,7 @@ type localGuidanceStore interface {
 	RuntimeGuidance(context.Context, string, time.Time) (guidance.Decision, error)
 	LatestRuntimeGuidance(context.Context, string, time.Time) (guidance.Decision, error)
 	GuidanceControlLevel(context.Context, string) (guidance.ControlLevel, error)
+	RecordGuidanceDelivery(context.Context, guidance.DeliveryReceipt) error
 	ListSessionEvents(context.Context, string) ([]events.Event, error)
 }
 
@@ -61,6 +62,15 @@ func runtimeGuidanceEvidence(ctx context.Context, store localGuidanceStore, argu
 	for _, check := range decision.Verification {
 		items = append(items, mcp.EvidenceItem{Label: "Verification", Value: check})
 	}
+	receipt := guidance.DeliveryReceipt{
+		SessionID: decision.SessionID, ProjectID: projectID, Client: "codex-mcp",
+		DecisionID: decision.DecisionID, DecisionKind: decision.Kind,
+		ControlLevel: level, DeliveredAt: now.UTC(),
+	}
+	if err := store.RecordGuidanceDelivery(ctx, receipt); err != nil {
+		return mcp.ToolEvidence{}, err
+	}
+	items = append(items, mcp.EvidenceItem{Label: "Delivery receipt", Value: decision.DecisionID})
 
 	precision := guidancePrecision(ctx, store, decision)
 	return mcp.ToolEvidence{
