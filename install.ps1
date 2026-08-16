@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$version = if ($env:AGENT_DOCTOR_VERSION) { $env:AGENT_DOCTOR_VERSION } else { '1.0.0' }
+$version = if ($env:AGENT_DOCTOR_VERSION) { $env:AGENT_DOCTOR_VERSION } else { '0.1.0-beta.1' }
 $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'amd64' }
 $archive = "agent-doctor_${version}_windows_${arch}.zip"
 $base = "https://github.com/18534516725/Agent-Doctor/releases/download/v${version}"
@@ -17,8 +17,8 @@ try {
   $install = Join-Path $env:LOCALAPPDATA 'AgentDoctor\bin'
   New-Item -ItemType Directory -Force -Path $install | Out-Null
   Copy-Item (Join-Path $temporary 'agent-doctor.exe') (Join-Path $install 'agent-doctor.exe') -Force
-  & (Join-Path $install 'agent-doctor.exe') setup --yes --json
-  Write-Host "Installed. Add $install to PATH, then run: agent-doctor start --no-open"
+  & (Join-Path $install 'agent-doctor.exe') setup --all --yes --json
+  Write-Host "Installed. Add $install to PATH, then run: agent-doctor start"
 } finally {
   Remove-Item -Recurse -Force $temporary -ErrorAction SilentlyContinue
 }

@@ -1,0 +1,44 @@
+name: Client compatibility report
+description: Report a documented client/version integration boundary.
+title: "[Client]: "
+labels: [compatibility, needs-triage]
+body:
+  - type: input
+    id: client
+    attributes:
+      label: Client and exact version
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+    validations:
+      required: true
+  - type: dropdown
+    id: path
+    attributes:
+      label: Integration path
+      options: [MCP, Hook, Skill, Wrapper, Plugin, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed capability
+      description: "What was detected, connected, captured, advised, or enforced?"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Safe reproduction steps
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: This report contains no credentials, full conversations, databases, private source, or raw headers.
+          required: true

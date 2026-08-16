@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible Agent Doctor defect without sharing private data.
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not upload a complete SQLite database, full conversation, credentials, private source, or raw headers."
+  - type: input
+    id: version
+    attributes:
+      label: Agent Doctor version
+      placeholder: "v0.1.0-beta.1"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and architecture
+      placeholder: "macOS 15 / arm64"
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: AI client and version
+      placeholder: "Codex / version"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Minimal reproduction
+      description: Replace secrets and private paths before posting.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, conversations, private source, raw headers and private paths.
+          required: true

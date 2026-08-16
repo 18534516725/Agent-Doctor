@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-version=${AGENT_DOCTOR_VERSION:-1.0.0}
+version=${AGENT_DOCTOR_VERSION:-0.1.0-beta.1}
 repo=https://github.com/18534516725/Agent-Doctor/releases/download/v${version}
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)

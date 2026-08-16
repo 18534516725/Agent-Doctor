@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Agent Doctor local evidence flow</title>
+  <desc id="desc">AI coding clients send bounded evidence into a local SQLite store, deterministic analysis, dashboard and guidance.</desc>
+  <rect width="1200" height="360" rx="28" fill="#08150f"/>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+    <text x="64" y="62" fill="#9af25f" font-size="18" letter-spacing="3">AGENT DOCTOR · LOCAL EVIDENCE LOOP</text>
+    <g fill="#13251b" stroke="#385743" stroke-width="2">
+      <rect x="64" y="112" width="220" height="136" rx="16"/>
+      <rect x="360" y="112" width="220" height="136" rx="16"/>
+      <rect x="656" y="112" width="220" height="136" rx="16"/>
+      <rect x="952" y="112" width="184" height="136" rx="16"/>
+    </g>
+    <g fill="#f4f0df" font-size="22" font-weight="700">
+      <text x="92" y="160">AI clients</text><text x="388" y="160">Local SQLite</text><text x="684" y="160">Analysis</text><text x="980" y="160">Guidance</text>
+    </g>
+    <g fill="#9bad9f" font-size="15">
+      <text x="92" y="194">Codex · Claude Code</text><text x="92" y="220">public interfaces only</text>
+      <text x="388" y="194">private evidence</text><text x="388" y="220">exact · estimated · N/A</text>
+      <text x="684" y="194">deterministic rules</text><text x="684" y="220">progress · cost · handoff</text>
+      <text x="980" y="194">MCP · Hook · Skill</text><text x="980" y="220">bounded next step</text>
+    </g>
+    <g stroke="#9af25f" stroke-width="4" fill="none"><path d="M284 180h76"/><path d="M580 180h76"/><path d="M876 180h76"/></g>
+    <g fill="#9af25f"><path d="m350 170 16 10-16 10z"/><path d="m646 170 16 10-16 10z"/><path d="m942 170 16 10-16 10z"/></g>
+    <text x="64" y="310" fill="#71877a" font-size="15">Loopback only · no hidden judge model · missing evidence stays unavailable</text>
+  </g>
+</svg>

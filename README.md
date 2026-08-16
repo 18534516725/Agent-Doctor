@@ -1,8 +1,16 @@
 # Agent Doctor by NexoToken
 
+[简体中文](README.zh-CN.md) · [Install](docs/install.md) · [Compatibility](docs/compatibility.md) · [Report an issue](https://github.com/18534516725/Agent-Doctor/issues/new/choose)
+
+[![CI](https://github.com/18534516725/Agent-Doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/18534516725/Agent-Doctor/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-7ee787.svg)](LICENSE)
+[![Public beta](https://img.shields.io/badge/status-public_beta-f0b429.svg)](docs/launch/public-beta.md)
+
+![Agent Doctor local evidence flow](assets/agent-doctor-flow.svg)
+
 **A local reliability and guidance layer for AI coding agents.**
 
-Agent Doctor is an open-source local tool by [NexoToken](https://www.nexotoken.net/official), an AI API and agent tools platform for developers.
+Agent Doctor is an open-source local tool by [NexoToken](https://www.nexotoken.net/official/tools/agent-doctor), an AI API and agent tools platform for developers.
 
 Codex and Claude Code do the work. Agent Doctor watches the evidence, detects
 when a task is looping, losing context, or trying to finish without validation,
@@ -53,7 +61,7 @@ configured base URL through `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`. A client
 that was already running must be restarted through the wrapper; Agent Doctor
 does not attach to arbitrary existing processes or rewrite credentials.
 
-After v1.0.0 is published, the verified installers will be:
+After `v0.1.0-beta.1` is published and its checksums pass independent verification, the installers will be:
 
 ```bash
 curl --fail --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/18534516725/Agent-Doctor/main/install.sh | sh
@@ -181,3 +189,11 @@ documented client interface → sanitizer → local event contract → SQLite
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+## Public beta feedback
+
+Real projects are more useful than synthetic demos. If a diagnosis, cost state,
+client boundary, or handoff is wrong, choose the matching
+[issue form](https://github.com/18534516725/Agent-Doctor/issues/new/choose).
+Never attach a complete SQLite database, full transcript, credential, private
+source file, or authorization header. See the [feedback guide](docs/launch/feedback-guide.md).

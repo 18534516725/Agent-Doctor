@@ -29,12 +29,19 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: go test ./... -race -count=1
+      - name: Test Go packages with race detector
+        if: runner.os != 'Windows'
+        run: go test ./... -race -count=1
+      - name: Test Go packages on Windows
+        if: runner.os == 'Windows'
+        run: go test ./... -count=1
       - run: pnpm --dir dashboard test -- --run
       - run: ./scripts/embed-dashboard.sh
         shell: bash
       - run: go build ./cmd/agent-doctor
       - run: ./scripts/check-secrets.sh
+        shell: bash
+      - run: ./scripts/check-docs.sh
         shell: bash
       - run: git diff --check
 

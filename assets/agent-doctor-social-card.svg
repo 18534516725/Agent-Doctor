@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Agent Doctor by NexoToken</title><desc id="desc">Local diagnostics and context handoff for AI coding agents.</desc>
+  <rect width="1280" height="640" fill="#07130d"/><circle cx="1060" cy="90" r="260" fill="#9af25f" opacity=".12"/><circle cx="1160" cy="520" r="360" fill="none" stroke="#9af25f" stroke-width="70" opacity=".22"/>
+  <g font-family="Inter,ui-sans-serif,system-ui,sans-serif"><text x="88" y="110" fill="#9af25f" font-size="22" letter-spacing="5">LOCAL AI OBSERVABILITY</text><text x="88" y="255" fill="#f5f2e6" font-size="86" font-weight="800">Agent Doctor</text><text x="88" y="330" fill="#f5f2e6" font-size="36">See what changed. Verify what finished.</text><text x="88" y="405" fill="#9cad9f" font-size="25">Task evidence · cost precision · cross-client handoff</text><rect x="88" y="474" width="330" height="64" rx="8" fill="#9af25f"/><text x="116" y="516" fill="#07130d" font-size="24" font-weight="800">by NexoToken · Open source</text></g>
+</svg>

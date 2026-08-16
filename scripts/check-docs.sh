@@ -1,10 +1,17 @@
 #!/usr/bin/env sh
 set -eu
 
-required="README.md docs/install.md docs/privacy.md docs/cost-methodology.md docs/diagnosis-methodology.md docs/compatibility.md docs/troubleshooting.md examples/demo-data.json docs/marketing/zhihu-agent-doctor-public-beta.md docs/marketing/nodeloc-agent-doctor-public-beta.md docs/marketing/nodeseek-agent-doctor-public-beta.md"
+required="README.md README.zh-CN.md CHANGELOG.md CONTRIBUTING.md SECURITY.md assets/agent-doctor-flow.svg assets/agent-doctor-social-card.svg docs/install.md docs/privacy.md docs/cost-methodology.md docs/diagnosis-methodology.md docs/compatibility.md docs/troubleshooting.md docs/roadmap.md docs/launch/public-beta.md docs/launch/feedback-guide.md docs/launch/release-checklist.md examples/demo-data.json docs/marketing/zhihu-agent-doctor-public-beta.md docs/marketing/nodeloc-agent-doctor-public-beta.md docs/marketing/nodeseek-agent-doctor-public-beta.md"
 for file in $required; do
   test -s "$file" || { echo "missing documentation artifact: $file" >&2; exit 1; }
 done
+
+grep -q 'README.zh-CN.md' README.md
+grep -q 'README.md' README.zh-CN.md
+grep -q 'https://www.nexotoken.net/official/tools/agent-doctor' README.md
+grep -q 'https://www.nexotoken.net/official/tools/agent-doctor' README.zh-CN.md
+grep -q 'https://github.com/18534516725/Agent-Doctor/issues/new/choose' README.md
+grep -q 'https://github.com/18534516725/Agent-Doctor/issues/new/choose' README.zh-CN.md
 
 for command in setup start dashboard diagnose compare context costs doctor pause export forget run uninstall version; do
   grep -q "agent-doctor $command\|\`$command\`" README.md || { echo "README does not document $command" >&2; exit 1; }

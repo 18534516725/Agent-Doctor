@@ -6,7 +6,7 @@ evidence-first behavior.
 ## Requirements
 
 - Go 1.25 or newer
-- Node.js 24 or newer
+- Node.js 22 or newer
 - pnpm 10 or newer
 
 ## Contribution rules
@@ -18,4 +18,17 @@ evidence-first behavior.
 5. Treat missing telemetry as unavailable rather than inferred.
 6. Run `git diff --check` before committing.
 
-Detailed development commands will be added when the core workspaces land.
+## Development checks
+
+```bash
+pnpm install --frozen-lockfile
+go test ./... -race -count=1
+pnpm --dir dashboard test -- --run
+pnpm --dir dashboard build
+./scripts/check-docs.sh
+./scripts/check-secrets.sh
+git diff --check
+```
+
+Use the issue chooser before opening a pull request. Security vulnerabilities
+must be reported privately according to `SECURITY.md`.

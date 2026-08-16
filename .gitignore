@@ -30,6 +30,7 @@ node_modules/
 *.sqlite3-wal
 *.backup-*
 .agent-doctor/
+.superpowers/
 
 # Secrets and local configuration
 .env

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,54 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	projectmemory "github.com/18534516725/Agent-Doctor/internal/memory"
 )
+
+func TestProjectHandoffSanitizesStructuredPreviewAndRenderedText(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 8, 16, 8, 0, 0, 0, time.UTC)
+	projectID := "sanitized-project"
+	secret := "sk-1234567890abcdefghijklmnop"
+
+	created, err := database.CreateMemory(ctx, projectID, projectmemory.CreateInput{Content: "Authorization: Bearer 1234567890abcdefghijklmnop", SourceKind: "manual"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = database.UpdateMemory(ctx, projectID, created.ID, projectmemory.UpdateInput{State: "active"}, now); err != nil {
+		t.Fatal(err)
+	}
+	completed := now.Add(time.Minute)
+	if err = database.SaveConversationRequest(ctx, conversations.Request{
+		ID: "request-safe", SessionID: "session-safe", ProjectID: projectID,
+		Client: events.ClientRef{Name: "codex", Version: "1"}, Model: events.ModelRef{DisplayName: "test"},
+		Protocol: "test", Method: "LOCAL", Path: "test", StatusCode: 200, StartedAt: now, CompletedAt: &completed,
+		Usage: conversations.Usage{Precision: "unavailable"}, Cost: conversations.Cost{Precision: "unavailable"},
+		Messages: []conversations.Message{
+			{ID: "user-safe", Sequence: 0, Role: "user", Content: "repair login with " + secret, CreatedAt: now},
+			{ID: "assistant-safe", Sequence: 1, Role: "assistant", Content: "result used " + secret, CreatedAt: completed},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	capsule, err := database.ProjectHandoff(ctx, []string{projectID}, 800, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(capsule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), secret) || strings.Contains(string(payload), "1234567890abcdefghijklmnop") {
+		t.Fatalf("structured handoff leaked credential-shaped content: %s", payload)
+	}
+	if !strings.Contains(string(payload), "[REDACTED:") {
+		t.Fatalf("handoff did not preserve an explicit redaction marker: %s", payload)
+	}
+}
 
 func TestProjectHandoffResolvesCrossClientIdentityAndUsesOnlyActiveMemory(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "doctor.db"))

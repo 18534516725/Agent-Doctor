@@ -48,6 +48,23 @@ clearly marked `mcp_servers.agent_doctor` block atomically, saves a user-only
 backup, and is idempotent. Other clients use the tested files under `adapters/`;
 they are not silently edited by the current setup command.
 
+## Public beta installer
+
+The default remote installer targets `v0.1.0-beta.1`. Use it only after the
+release page and `SHA256SUMS.txt` are publicly available:
+
+```bash
+curl --fail --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/18534516725/Agent-Doctor/main/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/18534516725/Agent-Doctor/main/install.ps1 | iex
+```
+
+To install a later verified version explicitly, set `AGENT_DOCTOR_VERSION`
+before running the installer. Rolling back uses the same variable with a known
+release version; the installer still verifies that release's checksum file.
+
 ## Uninstall and local data
 
 ```bash

@@ -1,0 +1,33 @@
+name: Feature request
+description: Describe the real workflow and evidence gap before proposing an implementation.
+title: "[Feature]: "
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Real user scenario
+      description: "What task were you trying to complete?"
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: Current evidence gap
+      description: "What can Agent Doctor not explain or verify today?"
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe an observable result rather than a specific library.
+    validations:
+      required: true
+  - type: dropdown
+    id: privacy
+    attributes:
+      label: Does this require new data collection?
+      options: [No, Unsure, Yes]
+    validations:
+      required: true
