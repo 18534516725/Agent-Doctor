@@ -61,7 +61,7 @@ configured base URL through `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`. A client
 that was already running must be restarted through the wrapper; Agent Doctor
 does not attach to arbitrary existing processes or rewrite credentials.
 
-After `v0.1.0-beta.1` is published and its checksums pass independent verification, the installers will be:
+The published `v0.1.0-beta.1` archives and checksums passed independent verification. Install the public beta with:
 
 ```bash
 curl --fail --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/18534516725/Agent-Doctor/main/install.sh | sh

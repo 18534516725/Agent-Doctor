@@ -50,8 +50,9 @@ they are not silently edited by the current setup command.
 
 ## Public beta installer
 
-The default remote installer targets `v0.1.0-beta.1`. Use it only after the
-release page and `SHA256SUMS.txt` are publicly available:
+The default remote installer targets the published `v0.1.0-beta.1` release.
+It downloads from the official GitHub release and verifies `SHA256SUMS.txt`
+before installing:
 
 ```bash
 curl --fail --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/18534516725/Agent-Doctor/main/install.sh | sh
