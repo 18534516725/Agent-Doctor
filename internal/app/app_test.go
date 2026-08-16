@@ -14,6 +14,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/guidance"
+	"github.com/18534516725/Agent-Doctor/internal/handoff"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -296,6 +297,27 @@ func TestClaudeCodeGuidanceHookWritesBoundedFeedback(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeSessionStartInjectsSharedHandoffWhenGuidanceContinues(t *testing.T) {
+	now := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	store := &fakeClaudeGuidanceStore{
+		decision: guidance.Decision{Kind: guidance.KindContinue, ExpiresAt: now.Add(time.Minute)},
+		level:    guidance.ControlGuide,
+		capsule: handoff.Capsule{Snapshot: handoff.Snapshot{
+			ProjectID: "/private/project", SourceClient: "codex", SourceSessionID: "codex-session-1",
+			Memories: []handoff.Memory{{Content: "不得修改认证协议", SourceKind: "manual"}},
+		}, Rendered: "# Cross-client task handoff\nGoal: 完成登录模块", TokenEstimate: 20, Budget: 800, Provenance: "local-sqlite-cross-client-handoff"},
+	}
+	input := strings.NewReader(`{"session_id":"claude-session-1","cwd":"/private/project","hook_event_name":"SessionStart"}`)
+	var stdout, stderr bytes.Buffer
+	code := runClaudeCodeGuidanceHook(input, &stdout, &stderr, store, func() time.Time { return now })
+	if code != 0 || !strings.Contains(stdout.String(), "Cross-client task handoff") || !strings.Contains(stdout.String(), "完成登录模块") {
+		t.Fatalf("handoff was not injected: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if len(store.projectIDs) != 2 || store.projectIDs[1] != "/private/project" || store.targetClient != "claude-code" {
+		t.Fatalf("handoff lookup/delivery mismatch: ids=%v target=%q", store.projectIDs, store.targetClient)
+	}
+}
+
 func TestClaudeCodeGuidanceHookFailsOpenAndSilent(t *testing.T) {
 	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
 	store := &fakeClaudeGuidanceStore{err: errors.New("private database failure")}
@@ -421,6 +443,28 @@ func TestLocalMCPBackendReturnsRuntimeGuidance(t *testing.T) {
 	}
 }
 
+func TestLocalMCPBackendReturnsAndRecordsRealContextCapsule(t *testing.T) {
+	store := &fakeLocalHandoffStore{capsule: handoff.Capsule{Snapshot: handoff.Snapshot{
+		ProjectID: "project-1", SourceClient: "claude-code", SourceSessionID: "claude-session-1",
+		Memories: []handoff.Memory{{Content: "完成前运行测试", SourceKind: "manual"}},
+	}, Rendered: "# Cross-client task handoff\nGoal: 继续完成登录模块", TokenEstimate: 24, Budget: 800, Provenance: "local-sqlite-cross-client-handoff"}}
+	backend := localMCPBackend{store: store}
+	evidence, err := backend.Execute(context.Background(), "get_context_capsule", map[string]any{"projectId": "project-1", "budget": float64(800)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := evidence.Summary
+	for _, item := range evidence.Items {
+		joined += " " + item.Label + " " + item.Value
+	}
+	if !strings.Contains(joined, "继续完成登录模块") || evidence.Provenance != "local-sqlite-cross-client-handoff" || evidence.Precision != "exact" {
+		t.Fatalf("unexpected context evidence: %+v", evidence)
+	}
+	if store.targetClient != "codex" || len(store.projectIDs) != 1 || store.projectIDs[0] != "project-1" {
+		t.Fatalf("delivery was not recorded: target=%q ids=%v", store.targetClient, store.projectIDs)
+	}
+}
+
 type fakeLocalEvidenceStore struct{ events []events.Event }
 
 func (store fakeLocalEvidenceStore) ListSessionEvents(_ context.Context, _ string) ([]events.Event, error) {
@@ -437,6 +481,23 @@ type fakeLocalGuidanceStore struct {
 	decision guidance.Decision
 	level    guidance.ControlLevel
 	receipt  guidance.DeliveryReceipt
+}
+
+type fakeLocalHandoffStore struct {
+	fakeLocalEvidenceStore
+	capsule      handoff.Capsule
+	projectIDs   []string
+	targetClient string
+}
+
+func (store *fakeLocalHandoffStore) ProjectHandoff(_ context.Context, projectIDs []string, _ int, _ time.Time) (handoff.Capsule, error) {
+	store.projectIDs = append([]string(nil), projectIDs...)
+	return store.capsule, nil
+}
+
+func (store *fakeLocalHandoffStore) RecordHandoffDelivery(_ context.Context, _ handoff.Capsule, target string, _ time.Time) error {
+	store.targetClient = target
+	return nil
 }
 
 func (store *fakeLocalGuidanceStore) RuntimeGuidance(_ context.Context, _ string, _ time.Time) (guidance.Decision, error) {
@@ -461,10 +522,13 @@ func (store fakeLocalAnalysisStore) LiveConversationAnalysis(_ context.Context) 
 }
 
 type fakeClaudeGuidanceStore struct {
-	inserted events.Event
-	decision guidance.Decision
-	level    guidance.ControlLevel
-	err      error
+	inserted     events.Event
+	decision     guidance.Decision
+	level        guidance.ControlLevel
+	err          error
+	capsule      handoff.Capsule
+	projectIDs   []string
+	targetClient string
 }
 
 func (store *fakeClaudeGuidanceStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -478,4 +542,14 @@ func (store *fakeClaudeGuidanceStore) RuntimeGuidance(_ context.Context, _ strin
 
 func (store *fakeClaudeGuidanceStore) GuidanceControlLevel(_ context.Context, _ string) (guidance.ControlLevel, error) {
 	return store.level, store.err
+}
+
+func (store *fakeClaudeGuidanceStore) ProjectHandoff(_ context.Context, projectIDs []string, _ int, _ time.Time) (handoff.Capsule, error) {
+	store.projectIDs = append([]string(nil), projectIDs...)
+	return store.capsule, store.err
+}
+
+func (store *fakeClaudeGuidanceStore) RecordHandoffDelivery(_ context.Context, _ handoff.Capsule, target string, _ time.Time) error {
+	store.targetClient = target
+	return store.err
 }

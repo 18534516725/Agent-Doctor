@@ -23,6 +23,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/conversations"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/guidance"
+	"github.com/18534516725/Agent-Doctor/internal/handoff"
 	"github.com/18534516725/Agent-Doctor/internal/installer"
 	"github.com/18534516725/Agent-Doctor/internal/mcp"
 	localproxy "github.com/18534516725/Agent-Doctor/internal/proxy"
@@ -706,6 +707,8 @@ type claudeGuidanceStore interface {
 	InsertEvent(context.Context, events.Event) error
 	RuntimeGuidance(context.Context, string, time.Time) (guidance.Decision, error)
 	GuidanceControlLevel(context.Context, string) (guidance.ControlLevel, error)
+	ProjectHandoff(context.Context, []string, int, time.Time) (handoff.Capsule, error)
+	RecordHandoffDelivery(context.Context, handoff.Capsule, string, time.Time) error
 }
 
 func runClaudeCodeGuidanceHook(input io.Reader, stdout, diagnostics io.Writer, store claudeGuidanceStore, now func() time.Time) int {
@@ -738,12 +741,30 @@ func runClaudeCodeGuidanceHook(input io.Reader, stdout, diagnostics io.Writer, s
 	}
 	var envelope struct {
 		HookEventName string `json:"hook_event_name"`
+		WorkingDir    string `json:"cwd"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		claudeHookDiagnostic(diagnostics)
 		return 0
 	}
 	response, ok := claudecode.ResponseForDecision(envelope.HookEventName, level, decision, 800, evaluatedAt)
+	if envelope.HookEventName == "SessionStart" {
+		capsule, capsuleErr := store.ProjectHandoff(ctx, []string{event.ProjectID, envelope.WorkingDir}, handoff.DefaultBudget, evaluatedAt)
+		if capsuleErr == nil && strings.TrimSpace(capsule.Rendered) != "" {
+			additional := capsule.Rendered
+			if ok && response.HookSpecificOutput != nil && response.HookSpecificOutput.AdditionalContext != "" {
+				additional += "\n\n## Live reliability guidance\n" + response.HookSpecificOutput.AdditionalContext
+			}
+			sessionResponse, responseErr := claudecode.SessionStartResponse(additional, handoff.DefaultBudget)
+			if responseErr == nil {
+				response = claudecode.GuidanceResponse{HookSpecificOutput: &sessionResponse.HookSpecificOutput}
+				ok = true
+				if err := store.RecordHandoffDelivery(ctx, capsule, "claude-code", evaluatedAt); err != nil {
+					claudeHookDiagnostic(diagnostics)
+				}
+			}
+		}
+	}
 	if !ok {
 		return 0
 	}
@@ -818,6 +839,11 @@ type localAnalysisStore interface {
 	LiveConversationAnalysis(context.Context) (conversations.LiveAnalysis, error)
 }
 
+type localHandoffStore interface {
+	ProjectHandoff(context.Context, []string, int, time.Time) (handoff.Capsule, error)
+	RecordHandoffDelivery(context.Context, handoff.Capsule, string, time.Time) error
+}
+
 // localMCPBackend turns normalized local events into bounded, payload-free
 // evidence. Tools for which no compatible telemetry exists remain unavailable.
 type localMCPBackend struct{ store localEvidenceStore }
@@ -849,6 +875,36 @@ func (backend localMCPBackend) Execute(ctx context.Context, tool string, argumen
 			items = append(items, mcp.EvidenceItem{Label: finding.Title, Value: finding.Evidence + "；建议：" + finding.Recommendation})
 		}
 		return mcp.ToolEvidence{Summary: analysis.Summary, Items: items, Provenance: "local-sqlite-deterministic-analysis", Precision: "exact", DataLimitNotes: analysis.Limitations}, nil
+	}
+	if tool == "get_context_capsule" {
+		store, ok := backend.store.(localHandoffStore)
+		if !ok {
+			return unavailableMCPBackend{}.Execute(ctx, tool, arguments)
+		}
+		projectID, _ := arguments["projectId"].(string)
+		budget := handoff.DefaultBudget
+		if requested, ok := arguments["budget"].(float64); ok && requested > 0 {
+			budget = int(requested)
+		}
+		now := time.Now().UTC()
+		capsule, err := store.ProjectHandoff(ctx, []string{projectID}, budget, now)
+		if err != nil {
+			return unavailableMCPBackend{}.Execute(ctx, tool, arguments)
+		}
+		if err := store.RecordHandoffDelivery(ctx, capsule, "codex", now); err != nil {
+			return mcp.ToolEvidence{}, err
+		}
+		items := []mcp.EvidenceItem{
+			{Label: "Context capsule", Value: capsule.Rendered},
+			{Label: "Source client", Value: capsule.SourceClient},
+			{Label: "Source session", Value: capsule.SourceSessionID},
+			{Label: "Confirmed memories", Value: fmt.Sprintf("%d", len(capsule.Memories))},
+			{Label: "Token estimate", Value: fmt.Sprintf("%d/%d", capsule.TokenEstimate, capsule.Budget)},
+		}
+		return mcp.ToolEvidence{
+			Summary: "A bounded cross-client task handoff is available for this project.", Items: items,
+			Provenance: capsule.Provenance, Precision: "exact", DataLimitNotes: capsule.Limitations,
+		}, nil
 	}
 	if tool != "get_task_evidence" {
 		return unavailableMCPBackend{}.Execute(ctx, tool, arguments)

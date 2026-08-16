@@ -17,6 +17,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/guidance"
+	"github.com/18534516725/Agent-Doctor/internal/handoff"
 )
 
 type memoryEventStore struct {
@@ -31,6 +32,14 @@ type memoryEventStore struct {
 	delivery       guidance.DeliveryReceipt
 	levels         map[string]guidance.ControlLevel
 	guidanceStatus guidance.Status
+	handoff        handoff.Capsule
+}
+
+func (store *memoryEventStore) ProjectHandoff(_ context.Context, projectIDs []string, _ int, _ time.Time) (handoff.Capsule, error) {
+	if store.handoff.ProjectID == "" {
+		return handoff.Capsule{}, errors.New("not found")
+	}
+	return store.handoff, nil
 }
 
 func (store *memoryEventStore) InsertEvent(_ context.Context, event events.Event) error {
@@ -427,6 +436,30 @@ func TestConversationAPIExposesCompleteLocalMessagesAndAnalysis(t *testing.T) {
 	service.Handler().ServeHTTP(response, request)
 	if !strings.Contains(response.Body.String(), "完整用户问题") || !strings.Contains(response.Body.String(), "完整模型回复") {
 		t.Fatalf("full messages missing: %s", response.Body.String())
+	}
+}
+
+func TestProjectHandoffPreviewExposesTransferContentsAndReceipt(t *testing.T) {
+	now := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	store := &memoryEventStore{handoff: handoff.Capsule{
+		Snapshot: handoff.Snapshot{
+			ProjectID: "project-1", SourceClient: "codex", SourceSessionID: "session-1",
+			Goal: "完成登录模块", LatestResult: "前端还有两个测试失败",
+			Memories:    []handoff.Memory{{Content: "不得修改认证协议", SourceKind: "manual"}},
+			Limitations: []string{"仅包含已确认记忆和最近任务。"}, GeneratedAt: now,
+		},
+		Rendered: "bounded capsule", TokenEstimate: 40, Budget: 800, Provenance: "local-sqlite-cross-client-handoff",
+		LastDelivery: &handoff.Delivery{ProjectID: "project-1", SourceClient: "codex", SourceSessionID: "session-1", TargetClient: "claude-code", MemoryCount: 1, DeliveredAt: now},
+	}}
+	service, _ := New(Config{Version: "0.1.0-dev", Store: store})
+	request := authenticatedRequest(t, service, http.MethodGet, "/api/v1/projects/project-1/handoff", nil)
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	body := response.Body.String()
+	for _, expected := range []string{`"sourceClient":"codex"`, `"goal":"完成登录模块"`, `"targetClient":"claude-code"`, `"memoryCount":1`, `"limitations":["仅包含已确认记忆`} {
+		if response.Code != http.StatusOK || !strings.Contains(body, expected) {
+			t.Fatalf("handoff preview missing %q: status=%d body=%s", expected, response.Code, body)
+		}
 	}
 }
 

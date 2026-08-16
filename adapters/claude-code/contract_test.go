@@ -34,7 +34,7 @@ func TestClaudePluginAndHookContract(t *testing.T) {
 		}
 	}
 	skill := text(t, "skills/agent-doctor/SKILL.md")
-	for _, required := range []string{"read-only", "Never guess", "provenance", "precision"} {
+	for _, required := range []string{"delivery receipts", "Never guess", "provenance", "precision"} {
 		if !strings.Contains(skill, required) {
 			t.Fatalf("skill missing %q", required)
 		}

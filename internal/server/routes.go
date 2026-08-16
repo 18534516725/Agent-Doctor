@@ -15,6 +15,7 @@ import (
 	"github.com/18534516725/Agent-Doctor/internal/dashboard"
 	"github.com/18534516725/Agent-Doctor/internal/events"
 	"github.com/18534516725/Agent-Doctor/internal/guidance"
+	"github.com/18534516725/Agent-Doctor/internal/handoff"
 	"github.com/18534516725/Agent-Doctor/internal/insights"
 	projectmemory "github.com/18534516725/Agent-Doctor/internal/memory"
 	"github.com/18534516725/Agent-Doctor/internal/realtime"
@@ -61,6 +62,10 @@ type memoryStore interface {
 	DeleteMemory(context.Context, string, string, time.Time) error
 }
 
+type handoffStore interface {
+	ProjectHandoff(context.Context, []string, int, time.Time) (handoff.Capsule, error)
+}
+
 func (server *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", server.dashboardHome)
@@ -77,6 +82,7 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/insights/costs", server.costInsights)
 	mux.HandleFunc("GET /api/v1/insights/trends", server.requestTrends)
 	mux.HandleFunc("GET /api/v1/projects/{id}/memories", server.listMemories)
+	mux.HandleFunc("GET /api/v1/projects/{id}/handoff", server.projectHandoff)
 	mux.HandleFunc("POST /api/v1/projects/{id}/memories", server.createMemory)
 	mux.HandleFunc("PATCH /api/v1/projects/{id}/memories/{memoryId}", server.updateMemory)
 	mux.HandleFunc("DELETE /api/v1/projects/{id}/memories/{memoryId}", server.deleteMemory)
@@ -88,6 +94,20 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/settings/privacy", server.getPrivacy)
 	mux.HandleFunc("PUT /api/v1/settings/privacy", server.putPrivacy)
 	return securityHeaders(mux)
+}
+
+func (server *Server) projectHandoff(response http.ResponseWriter, request *http.Request) {
+	store, ok := server.store.(handoffStore)
+	if !ok {
+		writeError(response, http.StatusNotImplemented, "cross-client handoff unavailable")
+		return
+	}
+	capsule, err := store.ProjectHandoff(request.Context(), []string{request.PathValue("id")}, handoff.DefaultBudget, time.Now().UTC())
+	if err != nil {
+		writeError(response, http.StatusNotFound, "project handoff unavailable")
+		return
+	}
+	writeJSON(response, http.StatusOK, capsule)
 }
 
 func (server *Server) memoryStore(response http.ResponseWriter) (memoryStore, bool) {

@@ -40,7 +40,7 @@ type toolDefinition struct {
 var readOnlyTools = []toolDefinition{
 	newTool("get_project_analysis", "Project analysis", "Get the current local project health, risks, cost coverage, efficiency findings, and recommended next actions before answering the user.", map[string]string{}, nil),
 	newGuidanceTool("get_runtime_guidance", "Runtime guidance", "Get the current evidence-backed instruction for keeping a coding-agent task on track and record a bounded local delivery receipt.", map[string]string{"sessionId": "string", "projectId": "string"}, nil),
-	newTool("get_context_capsule", "Context capsule", "Get a token-bounded, provenance-labelled context capsule for the current project.", map[string]string{"projectId": "string", "currentFile": "string", "budget": "number"}, []string{"projectId"}),
+	newGuidanceTool("get_context_capsule", "Context capsule", "Get a token-bounded, provenance-labelled context capsule for the current project and record a local delivery receipt.", map[string]string{"projectId": "string", "currentFile": "string", "budget": "number"}, []string{"projectId"}),
 	newTool("diagnose_last_task", "Diagnose last task", "Diagnose the latest captured task using sanitized local evidence.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),
 	newTool("get_task_evidence", "Task evidence", "Get the bounded evidence timeline for one captured task.", map[string]string{"sessionId": "string"}, []string{"sessionId"}),
 	newTool("compare_clients", "Compare clients", "Compare observed outcomes across selected AI clients without exposing prompts or source code.", map[string]string{"projectId": "string", "clients": "array"}, []string{"projectId"}),

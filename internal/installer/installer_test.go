@@ -134,6 +134,16 @@ func TestBuildAllPlanOwnsCodexAndClaudeGuidanceAssets(t *testing.T) {
 			t.Fatalf("installed Codex guidance is missing %q\nskill=%s\nagents=%s", required, codexSkill, agentsGuidance)
 		}
 	}
+	claudeSkill := string(plan.Changes[4].After)
+	if !strings.Contains(codexSkill, "get_context_capsule") || !strings.Contains(codexSkill, "resuming") {
+		t.Fatalf("Codex skill does not fetch shared project handoff: %s", codexSkill)
+	}
+	if !strings.Contains(agentsGuidance, "get_context_capsule") || !strings.Contains(agentsGuidance, "resuming") {
+		t.Fatalf("Codex AGENTS guidance does not fetch shared project handoff: %s", agentsGuidance)
+	}
+	if !strings.Contains(claudeSkill, "SessionStart") || !strings.Contains(claudeSkill, "cross-client") {
+		t.Fatalf("Claude skill does not disclose automatic handoff: %s", claudeSkill)
+	}
 	if _, err := Apply(plan); err != nil {
 		t.Fatal(err)
 	}

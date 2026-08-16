@@ -132,7 +132,7 @@ func (server *Server) callTool(ctx context.Context, incoming request) response {
 	}
 	tool, ok := lookupTool(params.Name)
 	if !ok {
-		return errorResponse(incoming.ID, -32602, "unknown read-only tool")
+		return errorResponse(incoming.ID, -32602, "unknown tool")
 	}
 	if params.Arguments == nil {
 		params.Arguments = map[string]any{}

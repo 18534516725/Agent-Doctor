@@ -9,12 +9,12 @@ Use the `agent-doctor` MCP tools to answer from local, sanitized evidence. Treat
 
 ## Workflow
 
-1. At the start of every coding turn, call `get_runtime_guidance` with `projectId` set to the current project ID (normally the current working directory). Do not omit the project and let another recent task be selected.
+1. At the start of every coding turn, call `get_runtime_guidance` with `projectId` set to the current project ID (normally the current working directory). Do not omit the project and let another recent task be selected. When starting or resuming a known project, also call `get_context_capsule` to receive the bounded cross-client task handoff and confirmed shared project memory.
 2. Call it again after a failed tool step, after context compaction, and before claiming completion.
 3. Follow an evidence-supported `advise`, `redirect`, `verify`, or `block` instruction before continuing. Briefly tell the user `Agent Doctor intervened: <action taken>` when a non-`continue` result changes the work. Treat `continue` as silence and do not add diagnostic noise.
 4. For a captured coding task, call `get_project_analysis` before the final answer when broader health, efficiency, or cost evidence is relevant.
 5. Identify the task or project from the user's request. Ask for a session or project identifier only when the local tools cannot resolve it.
-6. Start with the narrowest additional read-only tool when deeper evidence is relevant:
+6. Start with the narrowest additional evidence tool when deeper evidence is relevant. Runtime guidance and context-capsule reads record only bounded local delivery receipts:
    - `diagnose_last_task` for failures, regressions, or unexpected outcomes.
    - `get_task_evidence` for the bounded evidence timeline.
    - `get_context_capsule` before resuming work in a known project.
@@ -26,7 +26,7 @@ Use the `agent-doctor` MCP tools to answer from local, sanitized evidence. Treat
 
 ## Safety boundaries
 
-- Keep the workflow read-only unless the user separately authorizes an action outside Agent Doctor.
+- Keep the workspace workflow read-only unless the user separately authorizes an action outside Agent Doctor. Agent Doctor may record bounded local delivery receipts for guidance and context retrieval.
 - Codex MCP and Skill integrations provide cooperative guidance only and cannot force-block a tool call. Never claim Agent Doctor blocked an action unless the connected client explicitly reports enforcement capability.
 - Never guess missing token counts, money, quotas, model identity, success, or causality.
 - Never request or reproduce prompts, source code, credentials, cookies, authorization headers, or absolute local paths.

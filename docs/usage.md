@@ -13,11 +13,18 @@ Agent Doctor 是本地优先的 AI 编程任务可靠性与引导工具。Codex�
 | Claude Code 官方 hooks | 已接通闭环 | 采集脱敏事件，实时返回纠偏/验收建议；`guard`/`autopilot` 可执行客户端明确支持的阻断 |
 | Cline 官方 hooks | 已接通 | 任务状态、工具事件和上下文压缩等经过脱敏的生命周期事件 |
 | Codex / Claude Code MCP | 已接通引导 | `get_runtime_guidance` 在任务开始、重复失败、压缩上下文和结束前返回当前指令；`get_task_evidence` 提供安全时间线 |
+| Codex → Claude Code 跨 AI 接力 | 已接通 | 同一工作目录下，Claude Code 的 `SessionStart` 自动接收由最近 Codex 任务和已确认项目记忆生成的精简交接包；Codex 可通过 `get_context_capsule` 读取同一份共享上下文 |
 | Cursor、Windsurf、Roo Code、Continue | MCP 配置已提供 | 可以调用只读工具；如果客户端没有提供兼容本地事件，会明确显示“不可用” |
 | OpenCode | 插件基础已提供 | 事件归一化与 fail-open 行为已实现；插件需要按公开说明显式安装 |
 | 费用与额度 | 本地计算器与 NexoToken 用户数据导入已实现 | 数据源、精确/估算状态与货币单位始终单独标注 |
 
 “已接通”不表示可以读取任意客户端私有记录。每一项能力都以公开、可验证的接口为边界。
+
+## 跨 AI 任务接力
+
+Agent Doctor 把项目记忆保存在客户端无关的本机 SQLite 中。用户从 Codex 切换到同一项目的 Claude Code 时，启动 Hook 会按工作目录匹配原始路径和隐私哈希，自动生成最多 800 Token 的交接包。交接包按优先级包含：已确认项目记忆、最近用户目标、最近模型进展、来源客户端与会话、数据边界。候选、停用和已删除记忆不会被注入。
+
+交接不复制完整聊天窗口，也不声称两个客户端拥有相同的会话 ID。仪表盘“项目记忆”页会显示实际带入内容、来源、目标客户端、Token 预算和最近交付时间；每次 Codex MCP 获取或 Claude Code 自动注入都会保存本地交付回执。
 
 ## 任务守护与介入级别
 
@@ -65,6 +72,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 ```text
 get_runtime_guidance({"sessionId":"…"})
 get_task_evidence({"sessionId":"…"})
+get_context_capsule({"projectId":"当前工作目录","budget":800})
 ```
 
 运行时指导包含决策类型、严重度、指令、证据 ID、禁止动作、验收要求和控制级别。不会回传原始 payload、prompt、源码、命令或工具输出。

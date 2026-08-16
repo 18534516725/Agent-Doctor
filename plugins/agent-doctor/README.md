@@ -1,6 +1,6 @@
 # Agent Doctor by NexoToken for Codex
 
-This repo-local plugin exposes Agent Doctor's sanitized, read-only MCP tools and the `$agent-doctor` diagnostic skill to Codex.
+This repo-local plugin exposes Agent Doctor's sanitized local evidence tools and the `$agent-doctor` diagnostic skill to Codex. Evidence retrieval does not modify the workspace; guidance and context delivery record bounded local receipts.
 
 ## Runtime contract
 

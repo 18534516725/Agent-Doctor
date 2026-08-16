@@ -53,7 +53,7 @@ func TestStdioInitializeAndToolList(t *testing.T) {
 			t.Fatalf("tool[%d]=%v want=%s", index, tool["name"], want[index])
 		}
 		annotations := tool["annotations"].(map[string]any)
-		wantReadOnly := want[index] != "get_runtime_guidance"
+		wantReadOnly := want[index] != "get_runtime_guidance" && want[index] != "get_context_capsule"
 		if annotations["readOnlyHint"] != wantReadOnly || annotations["destructiveHint"] != false {
 			t.Fatalf("tool annotations are dishonest for %s: %v", want[index], annotations)
 		}

@@ -10,6 +10,13 @@ and sends a bounded next-step instruction back to the running agent. It also
 explains why a task became slow, expensive, repetitive, or unreliable. Missing
 data stays **unavailable** instead of becoming a fabricated zero.
 
+Its shared project brain also carries work across clients. When you leave a
+captured Codex task and open Claude Code in the same repository, Agent Doctor
+automatically injects a bounded handoff containing the latest goal and result,
+confirmed project memory, source provenance, and explicit limitations. It does
+not paste the full transcript, and every delivery is visible in the local
+dashboard.
+
 The guidance engine is deterministic, runs locally, and does not call another
 model. Raw prompts, source files, commands, tool inputs, and tool results are not
 used by the guidance rules; supported hooks retain only bounded labels and

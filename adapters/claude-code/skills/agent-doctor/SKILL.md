@@ -5,7 +5,9 @@ description: Keep Claude Code tasks on track with sanitized runtime guidance, di
 
 # Agent Doctor
 
-Use the Agent Doctor MCP tools as a read-only evidence source. Always report `provenance`, `precision`, and `dataLimitNotes` with conclusions.
+Use the Agent Doctor MCP tools as a local evidence source. Evidence calls do not modify the workspace; runtime guidance and context-capsule calls record only bounded local delivery receipts. Always report `provenance`, `precision`, and `dataLimitNotes` with conclusions.
+
+At `SessionStart`, the installed hook automatically injects a bounded cross-client handoff for the same project when local evidence exists. Treat it as a resumable task snapshot, not as a complete transcript, and verify it against the current workspace.
 
 1. At the start of every coding turn, call `get_runtime_guidance` with `projectId` set to the current project ID. Call it again after a failed tool step, after context compaction, and before claiming completion.
 2. Follow evidence-supported `advise`, `redirect`, `verify`, and `block` guidance. Briefly tell the user `Agent Doctor intervened: <action taken>` when non-`continue` guidance changes the work. Treat `continue` as silence and add no diagnostic noise.
