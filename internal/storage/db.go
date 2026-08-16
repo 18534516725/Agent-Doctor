@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -58,10 +59,7 @@ func openWithMigrations(path string, migrationSet []migration, now func() time.T
 }
 
 func openSQLite(path string, readOnly bool) (*sql.DB, error) {
-	dsn := (&url.URL{Scheme: "file", Path: path}).String()
-	if readOnly {
-		dsn += "?mode=ro"
-	}
+	dsn := sqliteDSN(path, readOnly)
 	connection, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite: %w", err)
@@ -86,6 +84,20 @@ func openSQLite(path string, readOnly bool) (*sql.DB, error) {
 		}
 	}
 	return connection, nil
+}
+
+func sqliteDSN(path string, readOnly bool) string {
+	normalized := strings.ReplaceAll(filepath.ToSlash(path), `\`, "/")
+	if len(normalized) >= 2 && normalized[1] == ':' && ((normalized[0] >= 'A' && normalized[0] <= 'Z') || (normalized[0] >= 'a' && normalized[0] <= 'z')) {
+		normalized = "/" + normalized
+	}
+	location := &url.URL{Scheme: "file", Path: normalized}
+	if readOnly {
+		query := location.Query()
+		query.Set("mode", "ro")
+		location.RawQuery = query.Encode()
+	}
+	return location.String()
 }
 
 func (database *DB) Close() error               { return database.sql.Close() }

@@ -31,6 +31,16 @@ func storageEvent() events.Event {
 	}
 }
 
+func TestSQLiteDSNNormalizesWindowsDrivePathWithoutURIAuthority(t *testing.T) {
+	got := sqliteDSN(`C:\Users\runner\AppData\Local\Temp\doctor.db`, false)
+	if got != "file:///C:/Users/runner/AppData/Local/Temp/doctor.db" {
+		t.Fatalf("windows SQLite DSN=%q", got)
+	}
+	if readOnly := sqliteDSN(`C:\Users\runner\doctor.db`, true); readOnly != "file:///C:/Users/runner/doctor.db?mode=ro" {
+		t.Fatalf("read-only Windows SQLite DSN=%q", readOnly)
+	}
+}
+
 func TestOpenMigratesAndPersistsFilteredEvent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "doctor.db")
 	database, err := Open(path)
