@@ -44,7 +44,18 @@ jobs:
             "``````text" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
             $lines | Select-Object -Last 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
             "``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            $summary = (($lines | Select-Object -Last 20) -join " | ") -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
+            $diagnostics = $lines |
+              ForEach-Object { $_.ToString() } |
+              Where-Object { $_ -match 'FAIL|panic|\.go:[0-9]+|Error:' } |
+              Select-Object -Last 40
+            if (-not $diagnostics) {
+              $diagnostics = $lines | ForEach-Object { $_.ToString() } | Select-Object -Last 20
+            }
+            $summary = $diagnostics -join " | "
+            if ($summary.Length -gt 3500) {
+              $summary = $summary.Substring($summary.Length - 3500)
+            }
+            $summary = $summary -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
             Write-Host "::error title=Windows Go tests failed::$summary"
             exit $exitCode
           }
