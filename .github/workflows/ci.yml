@@ -36,10 +36,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-          $lines = & go test ./... -count=1 2>&1
-          $exitCode = $LASTEXITCODE
+          $stdoutPath = Join-Path $env:RUNNER_TEMP 'agent-doctor-windows-go-test.stdout.log'
+          $stderrPath = Join-Path $env:RUNNER_TEMP 'agent-doctor-windows-go-test.stderr.log'
+          $process = Start-Process -FilePath (Get-Command go).Source `
+            -ArgumentList @('test', './...', '-count=1') `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -Wait -PassThru -NoNewWindow
+          $lines = @(
+            Get-Content -Path $stdoutPath -ErrorAction SilentlyContinue
+            Get-Content -Path $stderrPath -ErrorAction SilentlyContinue
+          )
+          $exitCode = $process.ExitCode
           $lines | ForEach-Object { Write-Host $_ }
           if ($exitCode -ne 0) {
             "## Windows Go test failure" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
