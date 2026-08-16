@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-required="README.md docs/install.md docs/privacy.md docs/cost-methodology.md docs/diagnosis-methodology.md docs/compatibility.md docs/troubleshooting.md examples/demo-data.json"
+required="README.md docs/install.md docs/privacy.md docs/cost-methodology.md docs/diagnosis-methodology.md docs/compatibility.md docs/troubleshooting.md examples/demo-data.json docs/marketing/zhihu-agent-doctor-public-beta.md docs/marketing/nodeloc-agent-doctor-public-beta.md docs/marketing/nodeseek-agent-doctor-public-beta.md"
 for file in $required; do
   test -s "$file" || { echo "missing documentation artifact: $file" >&2; exit 1; }
 done
@@ -18,6 +18,24 @@ grep -q "exact" docs/cost-methodology.md
 grep -q "estimated" docs/cost-methodology.md
 grep -q "unavailable" docs/cost-methodology.md
 grep -q "local" docs/privacy.md
+
+require_article() {
+  file="$1"
+  shift
+  grep -q '^# ' "$file" || { echo "article has no title: $file" >&2; exit 1; }
+  for phrase in "$@"; do
+    grep -q "$phrase" "$file" || { echo "article missing '$phrase': $file" >&2; exit 1; }
+  done
+  grep -q 'https://github.com/18534516725/Agent-Doctor' "$file" || { echo "article missing GitHub URL: $file" >&2; exit 1; }
+  grep -q 'https://www.nexotoken.net/official/tools/agent-doctor' "$file" || { echo "article missing NexoToken product URL: $file" >&2; exit 1; }
+}
+
+require_article docs/marketing/zhihu-agent-doctor-public-beta.md \
+  '为什么长任务越来越难复盘' '它实际记录什么' '它不会做什么' '如何开始使用'
+require_article docs/marketing/nodeloc-agent-doctor-public-beta.md \
+  '实现架构' '支持范围' '安装与启动' '隐私边界' '已知限制' '反馈方式'
+require_article docs/marketing/nodeseek-agent-doctor-public-beta.md \
+  '能立刻验证的三件事' '一条命令安装' '当前边界' '如何反馈'
 
 if grep -RniE 'sk-[A-Za-z0-9_-]{16,}|Bearer [A-Za-z0-9._-]{16,}' README.md docs examples; then
   echo "documentation contains credential-shaped example" >&2
