@@ -36,6 +36,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
           $lines = & go test ./... -count=1 2>&1
           $exitCode = $LASTEXITCODE
           $lines | ForEach-Object { Write-Host $_ }
