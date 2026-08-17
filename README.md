@@ -1,6 +1,6 @@
 # Agent Doctor by NexoToken
 
-[简体中文](README.zh-CN.md) · [Install](docs/install.md) · [Compatibility](docs/compatibility.md) · [Report an issue](https://github.com/18534516725/Agent-Doctor/issues/new/choose)
+[简体中文](README.zh-CN.md) · [Install](docs/install.md) · [NexoToken setup guides](https://docs.nexotoken.net/) · [Compatibility](docs/compatibility.md) · [Report an issue](https://github.com/18534516725/Agent-Doctor/issues/new/choose)
 
 [![CI](https://github.com/18534516725/Agent-Doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/18534516725/Agent-Doctor/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-7ee787.svg)](LICENSE)
@@ -178,6 +178,9 @@ documented client interface → sanitizer → local event contract → SQLite
 
 ## Documentation
 
+- [NexoToken AI API and tool setup guides](https://docs.nexotoken.net/)
+- [Codex setup guide](https://docs.nexotoken.net/coding-tools/codex-cli/)
+- [Claude Code setup guide](https://docs.nexotoken.net/coding-tools/claude-code/)
 - [Install](docs/install.md)
 - [Privacy](docs/privacy.md)
 - [Cost methodology](docs/cost-methodology.md)

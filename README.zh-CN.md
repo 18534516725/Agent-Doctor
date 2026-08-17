@@ -1,6 +1,6 @@
 # Agent Doctor by NexoToken
 
-[English](README.md) · [安装说明](docs/install.md) · [兼容矩阵](docs/compatibility.md) · [提交反馈](https://github.com/18534516725/Agent-Doctor/issues/new/choose)
+[English](README.md) · [安装说明](docs/install.md) · [NexoToken 配置教程](https://docs.nexotoken.net/) · [兼容矩阵](docs/compatibility.md) · [提交反馈](https://github.com/18534516725/Agent-Doctor/issues/new/choose)
 
 [![CI](https://github.com/18534516725/Agent-Doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/18534516725/Agent-Doctor/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-7ee787.svg)](LICENSE)
@@ -80,6 +80,9 @@ agent-doctor forget --yes --json   # 删除本地数据库
 
 ## 文档
 
+- [NexoToken AI API 与工具配置教程](https://docs.nexotoken.net/)
+- [Codex 配置教程](https://docs.nexotoken.net/coding-tools/codex-cli/)
+- [Claude Code 配置教程](https://docs.nexotoken.net/coding-tools/claude-code/)
 - [安装、升级与卸载](docs/install.md)
 - [隐私模型](docs/privacy.md)
 - [费用方法](docs/cost-methodology.md)
